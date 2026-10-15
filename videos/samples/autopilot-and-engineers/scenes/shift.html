@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* compare treatment: two boxes, then two tapes on the same scale, side by side, one label each. */
+  .layer { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; }
+
+  /* context: AUTOPILOT = AI CODE ASSISTANT, both cyan (automation). */
+  .cmp { position: relative; width: 1520px; height: 240px; }
+  .sys { position: absolute; top: 0; width: 620px; height: 240px; display: flex; align-items: center;
+         justify-content: center; text-align: center; font-family: var(--display); font-size: 72px; font-weight: 700;
+         line-height: 1.05; letter-spacing: 0.04em; text-transform: uppercase; color: var(--auto);
+         background: var(--panel); border: var(--stroke) solid currentColor; border-radius: var(--radius); }
+  .sys.left { left: 0; } .sys.right { left: 900px; }
+  .eq { position: absolute; left: 620px; top: 0; }
+  .eq line { stroke: var(--muted); stroke-width: var(--stroke); }
+
+  /* role: two tapes on the same scale; a white boxed readout with a pointer on each. */
+  .tapebox { position: relative; width: 1520px; height: 600px; }
+  .tapebox svg { position: absolute; left: 0; top: 0; }
+  .tape { stroke: var(--muted); stroke-width: var(--stroke); }
+  .tick { stroke: var(--muted); stroke-width: var(--stroke); }
+  .ro { position: absolute; font-family: var(--mono); font-size: 48px; font-weight: 700; line-height: 1;
+        letter-spacing: 0.06em; color: var(--human); background: var(--panel); border: 2px solid currentColor;
+        border-radius: var(--radius); padding: 12px 24px; white-space: nowrap; }
+  .ro::before { content: ""; position: absolute; left: -20px; top: 50%; margin-top: -12px; width: 0; height: 0;
+                border-top: 12px solid transparent; border-bottom: 12px solid transparent;
+                border-right: 18px solid currentColor; }
+  .ro.write { left: 234px; top: 38px; }
+  .ro.check { left: 1134px; top: 486px; }
+
+  /* plausible: a made-up code card; one line with a green check; an amber tag that turns red. */
+  .codewrap { display: flex; align-items: flex-start; gap: 48px; }
+  .codecard { font-family: var(--mono); font-size: 52px; color: var(--ink); background: var(--panel);
+              border: 2px solid var(--line); border-radius: var(--radius); padding: 36px 48px;
+              font-variant-ligatures: none; }
+  .ln { height: 78px; line-height: 78px; white-space: pre; display: flex; align-items: center; }
+  .ok { margin-left: 32px; }
+  .ok path { fill: none; stroke: var(--normal); stroke-width: 6; stroke-linecap: square; }
+  /* line 2 center: 2 + 36 + 78 + 39 = 155 px from the card top; the tag is 64 px tall. */
+  .tagslot { position: relative; margin-top: 123px; width: 300px; height: 64px; }
+  .tagslot .tag { position: absolute; left: 0; top: 0; line-height: 40px; }
+  /* .tag sets color after the concept classes in style.css; restate the alert colors here. */
+  .tag.caution { color: var(--caution); } .tag.warning { color: var(--warning); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="badge">PART 3/3</div>
+
+    <div class="layer ctx">
+      <div class="cmp">
+        <div class="sys left">AUTOPILOT</div>
+        <svg class="eq" width="280" height="240" viewBox="0 0 280 240">
+          <line x1="80" y1="104" x2="200" y2="104"/>
+          <line x1="80" y1="136" x2="200" y2="136"/>
+        </svg>
+        <div class="sys right">AI CODE<br>ASSISTANT</div>
+      </div>
+    </div>
+
+    <div class="layer tapes">
+      <div class="tapebox">
+        <svg width="1520" height="600" viewBox="0 0 1520 600"></svg>
+        <div class="ro write">WRITE</div>
+        <div class="ro check">CHECK</div>
+      </div>
+    </div>
+
+    <div class="layer code">
+      <div class="codewrap">
+        <div class="codecard">
+          <div class="ln"><span class="l1">def is_leap(year):</span></div>
+          <div class="ln"><span class="l2">    return year % 4 == 0</span><svg class="ok" width="52" height="52" viewBox="0 0 44 44"><path d="M 6 24 L 17 35 L 38 9"/></svg></div>
+        </div>
+        <div class="tagslot">
+          <div class="tag caution look">LOOKS RIGHT</div>
+          <div class="tag warning wrong">WRONG</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+<script>
+const { at } = EV;
+
+// Two tapes on the same scale: a line with ticks every 56 px, long ticks every other one.
+const svg = document.querySelector(".tapebox svg");
+const NS = "http://www.w3.org/2000/svg";
+const add = (tag, attrs) => {
+  const el = document.createElementNS(NS, tag);
+  Object.entries(attrs).forEach(([k, v]) => el.setAttribute(k, v));
+  return svg.appendChild(el);
+};
+[212, 1112].forEach(x => {
+  add("line", { class: "tape", x1: x, y1: 20, x2: x, y2: 580 });
+  for (let i = 0; i <= 10; i++) {
+    const y = 20 + i * 56;
+    add("line", { class: "tick", x1: x - (i % 2 ? 16 : 32), y1: y, x2: x, y2: y });
+  }
+});
+
+// context: badge, then AUTOPILOT = AI CODE ASSISTANT.
+EV.from(".badge", { opacity: 0 }, at("context"));
+EV.from(".sys.left", { opacity: 0 }, at("context", "researchers"));
+EV.draw(".eq line", at("context", "same"), 0.4, { stagger: 0.08, ease: "power2.out" });
+EV.from(".sys.right", { opacity: 0 }, at("context", "A I"));
+
+// role: the boxes fade; two tapes; WRITE slides down, CHECK slides up.
+EV.to(".ctx", { opacity: 0, duration: 0.3 }, at("role"));
+EV.from(".tapes", { opacity: 0 }, at("role") + 0.2);
+EV.to(".ro.write", { y: 448, duration: 0.8, ease: "power2.inOut" }, at("role", "writing"));
+EV.to(".ro.check", { y: -448, duration: 0.8, ease: "power2.inOut" }, at("role", "checking"));
+
+// plausible: the tapes fade; a code card types on; a green check; LOOKS RIGHT (amber) turns to WRONG (red) and stays.
+EV.to(".tapes", { opacity: 0, duration: 0.3 }, at("plausible"));
+EV.from(".code", { opacity: 0 }, at("plausible", "model"));
+EV.type(".l1", at("plausible", "model"), 0.5);
+EV.type(".l2", at("plausible", "produce"), 0.6);
+EV.from(".ok", { opacity: 0, scale: 0.6, duration: 0.3 }, at("plausible", "answer"));
+EV.from(".look", { opacity: 0 }, at("plausible", "sounds right"));
+EV.to(".look", { opacity: 0, duration: 0.3 }, at("plausible", "wrong"));
+EV.from(".wrong", { opacity: 0, duration: 0.3 }, at("plausible", "wrong"));
+
+EV.ready();
+</script>
+</body>
+</html>

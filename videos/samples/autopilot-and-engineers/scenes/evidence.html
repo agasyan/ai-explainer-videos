@@ -1,0 +1,169 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* Layout only, in .safe space (1728 x 808). Colors come from style.css. */
+  .layer { position: absolute; left: 0; top: 0; width: 1728px; height: 808px; }
+  .readout.human { color: var(--human); }
+  .tag.caution { color: var(--caution); }
+
+  /* big-number: a 0 to 100 % tape; x(v) = 140 + 14.5 v. Top edge y 374, bottom edge y 422. */
+  .tape { fill: var(--panel); stroke: var(--muted); stroke-width: var(--stroke); }
+  .tick { stroke: var(--muted); stroke-width: 2; }
+  .band { fill: var(--caution); fill-opacity: 0.28; }
+  .bracket { fill: none; stroke: var(--caution); stroke-width: 3; stroke-linecap: square; }
+  .end-lbl { position: absolute; top: 380px; font-family: var(--mono); font-size: 28px; line-height: 36px;
+             color: var(--muted); white-space: nowrap; }
+
+  /* A flag: a readout on a stem whose pointer rides the tape. The anchor is the pointer tip. */
+  .flag { position: absolute; left: 140px; width: 0; height: 0; }
+  .flag.up { top: 374px; }
+  .flag.down { top: 422px; }
+  .flag .body { position: absolute; left: 0; width: max-content; display: flex; flex-direction: column;
+                align-items: center; transform: translateX(-50%); }
+  .flag.up .body { bottom: 0; }
+  .flag.down .body { top: 0; }
+  .flag .cap { margin: 8px 0; }
+  .stem { width: 2px; height: 48px; background: currentColor; }
+  .ptr { display: block; }
+  .val { display: inline-block; min-width: 2ch; text-align: right; }
+
+  /* compare: two dials, no numbers on them: they show directions, not data. */
+  .dial { position: absolute; top: 170px; width: 460px; display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .dial svg { display: block; }
+  .dial-arc { fill: none; stroke: var(--muted); stroke-width: 2; }
+  .zone { fill: none; stroke: var(--caution); stroke-width: 12; }
+  .needle-line { stroke: var(--auto); stroke-width: 6; stroke-linecap: square; }
+  .hub { fill: var(--panel); stroke: var(--muted); stroke-width: 2; }
+  .dial .cap { font-size: 36px; }
+  .src.at-foot { position: absolute; left: 0; bottom: 0; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+
+    <div class="layer" id="quiz">
+      <svg class="layer" width="1728" height="808" viewBox="0 0 1728 808">
+        <rect id="tapeRect" class="tape" x="140" y="374" width="1450" height="48"/>
+        <rect id="band" class="band" x="865" y="374" width="246.5" height="48"/>
+        <g id="ticks"></g>
+        <path id="bracket" class="bracket" d="M 865 374 V 330 H 1111.5 V 374"/>
+      </svg>
+      <div class="end-lbl" id="lbl0" style="left: 0; width: 124px; text-align: right;">0</div>
+      <div class="end-lbl" id="lbl100" style="left: 1606px;">100 %</div>
+
+      <div class="flag up auto" id="flagA">
+        <div class="body">
+          <div class="cap">With AI</div>
+          <div class="readout big"><span class="val" id="valA">0</span><span class="unit">%</span></div>
+          <div class="stem"></div>
+          <svg class="ptr" width="28" height="18" viewBox="0 0 28 18"><path d="M0 0 H28 L14 18 Z" fill="currentColor"/></svg>
+        </div>
+      </div>
+
+      <div class="flag down human" id="flagB">
+        <div class="body">
+          <svg class="ptr" width="28" height="18" viewBox="0 0 28 18"><path d="M0 18 H28 L14 0 Z" fill="currentColor"/></svg>
+          <div class="stem"></div>
+          <div class="cap">Without AI</div>
+          <div class="readout big human"><span class="val" id="valB">0</span><span class="unit">%</span></div>
+        </div>
+      </div>
+
+      <div class="tag caution" id="gapTag" style="position: absolute; left: 1040px; top: 236px;">Biggest gap · Debugging</div>
+      <div class="src at-foot" id="srcA">Anthropic trial, 2026</div>
+    </div>
+
+    <div class="dial" id="dialSec" style="left: 274px;">
+      <svg width="460" height="350" viewBox="-230 -230 460 350">
+        <path class="dial-arc" d="M -185.33 107 A 214 214 0 1 1 185.33 107"/>
+        <g class="dial-ticks"></g>
+        <path class="zone" d="M -155.88 90 A 180 180 0 0 1 -169.14 -61.56"/>
+        <g class="needle" id="ndlSec">
+          <rect x="-10" y="-186" width="20" height="372" fill="none" stroke="none"/>
+          <line class="needle-line" x1="0" y1="0" x2="0" y2="-186"/>
+        </g>
+        <circle class="hub" r="14"/>
+      </svg>
+      <div class="cap" id="lblSec">Security</div>
+    </div>
+
+    <div class="dial" id="dialConf" style="left: 994px;">
+      <svg width="460" height="350" viewBox="-230 -230 460 350">
+        <path class="dial-arc" d="M -185.33 107 A 214 214 0 1 1 185.33 107"/>
+        <g class="dial-ticks"></g>
+        <g class="needle" id="ndlConf">
+          <rect x="-10" y="-186" width="20" height="372" fill="none" stroke="none"/>
+          <line class="needle-line" x1="0" y1="0" x2="0" y2="-186"/>
+        </g>
+        <circle class="hub" r="14"/>
+      </svg>
+      <div class="cap" id="lblConf">Confidence</div>
+    </div>
+
+    <div class="src at-foot" id="srcB">Stanford study</div>
+  </div>
+</div>
+<script>
+const { at } = EV;
+const NS = "http://www.w3.org/2000/svg";
+const line = (parent, x1, y1, x2, y2, cls) => {
+  const l = document.createElementNS(NS, "line");
+  Object.entries({ x1, y1, x2, y2, class: cls }).forEach(([k, v]) => l.setAttribute(k, v));
+  parent.appendChild(l);
+};
+
+// Static drawing: tape ticks every 5 %, dial ticks every 30 degrees (240-degree dials).
+const ticks = document.getElementById("ticks");
+for (let v = 0; v <= 100; v += 5) {
+  const x = 140 + 14.5 * v, h = v % 10 === 0 ? 16 : 8;
+  line(ticks, x, 374, x, 374 + h, "tick");
+  line(ticks, x, 422 - h, x, 422, "tick");
+}
+document.querySelectorAll(".dial-ticks").forEach(g => {
+  for (let a = -120; a <= 120; a += 30) {
+    const r = a * Math.PI / 180, s = Math.sin(r), c = -Math.cos(r);
+    line(g, 214 * s, 214 * c, 192 * s, 192 * c, "tick");
+  }
+});
+
+// Beat quiz: the tape, then each readout slides to its value as the voice says it.
+EV.draw("#tapeRect", at("quiz"), 0.8);
+EV.from("#ticks, #lbl0, #lbl100", { opacity: 0 }, at("quiz", "twenty"));
+EV.from("#srcA", { opacity: 0 }, at("quiz", "trial"));
+EV.set("#band", { opacity: 0 }, 0);
+EV.set("#bracket", { opacity: 0 }, 0);
+
+EV.from("#flagA", { opacity: 0 }, at("quiz", "With"));
+EV.to("#flagA", { x: 14.5 * 50, duration: 1.1, ease: "power2.out" }, at("quiz", "fifty"));
+EV.count("#valA", 0, 50, at("quiz", "fifty"), 1.1, undefined, "power2.out");
+
+EV.from("#flagB", { opacity: 0 }, at("quiz", "Without"));
+EV.to("#flagB", { x: 14.5 * 67, duration: 0.9, ease: "power2.out" }, at("quiz", "sixty"));
+EV.count("#valB", 0, 67, at("quiz", "sixty"), 0.9, undefined, "power2.out");
+
+// Beat debug: an amber bracket over the 50 to 67 span, then the tag.
+EV.set("#bracket", { opacity: 1 }, at("debug", "biggest"));
+EV.draw("#bracket", at("debug", "biggest"), 0.6);
+EV.to("#band", { opacity: 1, duration: 0.4 }, at("debug", "gap"));
+EV.from("#gapTag", { opacity: 0 }, at("debug", "debugging"));
+
+// Beat confident: the tape leaves; two dials. SECURITY falls into amber, CONFIDENCE rises.
+EV.to("#quiz", { opacity: 0, duration: 0.4 }, at("confident"));
+EV.from(".dial", { opacity: 0, stagger: 0.08 }, at("confident", "study"));
+EV.from("#srcB", { opacity: 0 }, at("confident", "study"));
+EV.fromTo("#ndlSec", { rotate: 50 }, { rotate: -95, duration: 1.0, ease: "power2.inOut" }, at("confident", "less"));
+EV.to("#ndlSec .needle-line", { stroke: "var(--caution)", duration: 0.4 }, at("confident", "secure"));
+EV.to("#lblSec", { color: "var(--caution)", duration: 0.4 }, at("confident", "secure"));
+EV.fromTo("#ndlConf", { rotate: -15 }, { rotate: 95, duration: 1.0, ease: "power2.inOut" }, at("confident", "more"));
+
+EV.ready();
+</script>
+</body>
+</html>

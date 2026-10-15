@@ -1,0 +1,182 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* Rows pinned to the top of .safe: the flight label, then the two speed readouts. */
+  .top { position: absolute; top: 0; left: 0; right: 0; display: flex; justify-content: center;
+         align-items: flex-end; gap: 28px; }
+  .col { display: flex; flex-direction: column; align-items: center; gap: 10px; }
+  .ne { width: 72px; height: 64px; margin-bottom: 18px; }
+  /* The alert column, top right: AUTOPILOT OFF, then STALL. */
+  .alerts { position: absolute; top: 0; right: 0; display: flex; flex-direction: column; align-items: flex-end;
+            gap: 16px; }
+  #stall { font-size: 44px; }
+  .toll { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center;
+          justify-content: center; gap: 40px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas class="gl" width="1920" height="1080"></canvas>
+  <div class="safe">
+    <div class="badge">PART 2/3</div>
+    <div class="top"><div class="tag" id="flight">AF447 · 2009 · RIO → PARIS</div></div>
+    <div class="top" id="speeds">
+      <div class="col"><div class="cap">SPEED 1</div><div class="readout"><span id="s1">270</span><span class="unit">KT</span></div></div>
+      <svg class="ne" id="ne" viewBox="0 0 72 64" width="72" height="64">
+        <g class="wire caution" style="stroke-width: 5">
+          <line x1="10" y1="24" x2="62" y2="24"/><line x1="10" y1="42" x2="62" y2="42"/><line x1="46" y1="6" x2="26" y2="60"/>
+        </g>
+      </svg>
+      <div class="col"><div class="cap">SPEED 2</div><div class="readout"><span id="s2">270</span><span class="unit">KT</span></div></div>
+    </div>
+    <div class="alerts">
+      <div class="tag caution" id="apoff">AUTOPILOT OFF</div>
+      <div class="tag warning" id="stall">STALL</div>
+    </div>
+    <div class="toll">
+      <div class="readout big human" id="onboard"><span>228</span><span class="unit">ON BOARD</span></div>
+      <div class="tag caution" id="gap">GAP · HAND FLYING TRAINING</div>
+    </div>
+  </div>
+</div>
+<script type="importmap">{"imports": {"three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+
+const { at } = EV;
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+const COLOR = { auto: css("--accent"), warning: css("--bad"), muted: css("--muted"), line: css("--line"), bg: css("--bg") };
+
+// ---------- 3D: glowing lines on a clear canvas, no solid faces ----------
+const renderer = new THREE.WebGLRenderer({ canvas: document.querySelector(".gl"), alpha: true, antialias: true,
+                                           preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setClearColor(0x000000, 0);
+const scene = new THREE.Scene();
+scene.fog = new THREE.Fog(COLOR.bg, 12, 52);
+const camera = new THREE.PerspectiveCamera(30, 16 / 9, 0.1, 300);
+
+function lines(segs, color, width, opts = {}) {
+  const material = new LineMaterial({ color, linewidth: width, transparent: true, ...opts });
+  material.resolution.set(1920, 1080);
+  return new LineSegments2(new LineSegmentsGeometry().setPositions(segs), material);
+}
+// A core line plus a wide, faint halo: the glow.
+function glowing(segs, color, width, extra = {}) {
+  const g = new THREE.Group();
+  g.add(lines(segs, color, width * 3.4, { opacity: 0.13, depthWrite: false, ...extra }));
+  g.add(lines(segs, color, width, extra));
+  return g;
+}
+function setOpacity(group, k) {
+  group.children.forEach((c, i) => { c.material.opacity = (i === 0 ? 0.13 : 1) * k; });
+  group.visible = k > 0.005;
+}
+
+// The airliner: x forward (nose), y up, z along the wings. Units are arbitrary.
+const P = [];
+const seg = (a, b) => P.push(...a, ...b);
+const loop = pts => pts.forEach((p, i) => seg(p, pts[(i + 1) % pts.length]));
+const ring = (x, r, y, z, n = 8) => Array.from({ length: n }, (_, k) => {
+  const a = (k / n) * Math.PI * 2;
+  return [x, y + r * Math.cos(a), z + r * Math.sin(a)];
+});
+// fuselage: stations [x, radius, center y]
+const ST = [[4.15, 0, -0.04], [3.75, 0.2, -0.02], [3.25, 0.34, 0], [2.5, 0.42, 0], [1.0, 0.42, 0], [-0.5, 0.42, 0],
+            [-2.0, 0.42, 0], [-2.9, 0.33, 0.08], [-3.7, 0.19, 0.2], [-4.2, 0.06, 0.3]];
+const rings = ST.map(([x, r, y]) => ring(x, r, y, 0));
+for (let k = 0; k < 8; k++) for (let i = 0; i + 1 < ST.length; i++) seg(rings[i][k], rings[i + 1][k]);
+[2, 3, 5, 6, 7].forEach(i => loop(rings[i]));
+for (const s of [1, -1]) {
+  const w = (x, y, z) => [x, y, s * z];
+  // swept wing with a trailing-edge kink, slight dihedral
+  loop([w(1.05, -0.22, 0.38), w(-1.55, 0.14, 4.35), w(-2.2, 0.14, 4.35), w(-0.95, -0.14, 1.75), w(-0.7, -0.22, 0.38)]);
+  // engine under the wing
+  const er = [[1.35, 0.25], [0.9, 0.26], [-0.15, 0.19]].map(([x, r]) => ring(x, r, -0.6, s * 1.6));
+  for (let k = 0; k < 8; k++) for (let i = 0; i < 2; i++) seg(er[i][k], er[i + 1][k]);
+  er.forEach(loop);
+  seg(w(0.75, -0.34, 1.6), w(0.2, -0.12, 1.6));
+  seg(w(-0.1, -0.41, 1.6), w(-0.5, -0.12, 1.6));
+  // tailplane
+  loop([w(-3.0, 0.22, 0.16), w(-3.85, 0.36, 1.75), w(-4.2, 0.36, 1.75), w(-3.75, 0.22, 0.16)]);
+}
+loop([[-2.7, 0.38, 0], [-3.75, 1.8, 0], [-4.25, 1.8, 0], [-3.95, 0.34, 0]]);  // fin
+
+const plane = glowing(P, COLOR.auto, 3);
+scene.add(plane);
+
+// Where the nose points: a muted dashed line, fixed to the plane.
+const nose = lines([4.3, -0.04, 0, 6.6, -0.04, 0], COLOR.muted, 2.6, { dashed: true, dashSize: 0.2, gapSize: 0.14, opacity: 0 });
+nose.computeLineDistances();
+plane.add(nose);
+
+// Where the plane goes: a red arrow from the center, in world space (it does not pitch with the plane).
+const L = 4.6;
+const arrow = glowing([0, 0, 0, L, 0, 0, L, 0, 0, L - 0.55, 0.3, 0, L, 0, 0, L - 0.55, -0.3, 0], COLOR.warning, 4.5,
+                      { depthTest: false });
+arrow.children.forEach((c, i) => { c.renderOrder = 10 + i; });
+scene.add(arrow);
+
+// A faint ground grid far below: the horizon reference. It fades into the fog.
+// Short pieces, so the fog (computed per segment end) and the near-plane trim stay accurate.
+const G = [];
+for (let z = -45; z <= 30; z += 3) for (let x = -66; x < 66; x += 3) G.push(x, 0, z, x + 3, 0, z);
+for (let x = -66; x <= 66; x += 3) for (let z = -45; z < 30; z += 3) G.push(x, 0, z, x, 0, z + 3);
+const grid = lines(G, COLOR.line, 2, { fog: true, transparent: false });
+scene.add(grid);
+
+// Numbers that EV tweens; the frame reads them.
+const st = { pitch: 0, nose: 0, grow: 0, gamma: -0.1, rise: 0 };
+const D = 17, ELEV = THREE.MathUtils.degToRad(12);
+EV.onFrame(t => {
+  const az = THREE.MathUtils.degToRad(40 - 1.1 * t);  // slow orbit toward a side view
+  camera.position.set(D * Math.cos(ELEV) * Math.sin(az), D * Math.sin(ELEV), D * Math.cos(ELEV) * Math.cos(az));
+  camera.lookAt(0, 0.25, 0);
+  plane.rotation.z = st.pitch;
+  nose.material.opacity = 0.9 * st.nose;
+  nose.visible = st.nose > 0.005;
+  setOpacity(arrow, Math.min(1, st.grow * 1.5));
+  arrow.scale.setScalar(Math.max(st.grow, 0.001));
+  arrow.rotation.z = st.gamma;
+  grid.position.set(-((t * 1.4) % 3), -6 + st.rise, 0);  // the ground moves back; in the stall it comes up
+  renderer.render(scene, camera);
+});
+
+// ---------- timeline ----------
+// context: the badge and the cruising airliner
+EV.from(".gl", { opacity: 0, duration: 0.8 }, 0);
+EV.from(".badge", { opacity: 0 }, 0.1);
+// flight: the label
+EV.from("#flight", { opacity: 0 }, at("flight", "two"));
+// ice: two readouts that disagree, then AUTOPILOT OFF (values are illustrative)
+EV.to(".badge, #flight", { opacity: 0 }, at("ice"));
+EV.from("#speeds .col", { opacity: 0, stagger: 0.08 }, at("ice", "speed"));
+EV.count("#s2", 270, 160, at("ice", "disagree"), 1.0);
+EV.from("#ne", { opacity: 0 }, at("ice", "disagree"));
+EV.from("#apoff", { opacity: 0 }, at("ice", "disconnects"));
+// stall: nose up, path falling, STALL
+EV.to("#speeds", { opacity: 0 }, at("stall"));
+EV.to(st, { pitch: THREE.MathUtils.degToRad(16), duration: 2.2, ease: "power2.inOut" }, at("stall", "hand"));
+EV.to(st, { nose: 1, duration: 0.6 }, at("stall", "hand"));
+EV.to(st, { grow: 1, duration: 0.7 }, at("stall", "They"));
+EV.to(st, { gamma: -0.5, duration: 2.0, ease: "power1.inOut" }, at("stall", "They"));
+EV.to(st, { rise: 1.8, duration: 2.6, ease: "power1.in" }, at("stall", "They"));
+EV.from("#stall", { opacity: 0 }, at("stall", "stalled"));
+// toll: quiet. The 3D view fades; a white readout; the training gap in amber.
+EV.to(".gl", { opacity: 0, duration: 0.9, ease: "power1.inOut" }, at("toll"));
+EV.to(".alerts", { opacity: 0 }, at("toll"));
+EV.from("#onboard", { opacity: 0, duration: 0.8 }, at("toll", "two"));
+EV.from("#gap", { opacity: 0 }, at("toll", "gap"));
+EV.ready();
+</script>
+</body>
+</html>

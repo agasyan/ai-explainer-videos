@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* The title box sits on a thin horizon line that spans the screen and fades at both ends. */
+  .title-wrap { position: relative; }
+  .horizon { position: absolute; left: 50%; top: 50%; width: 1920px; height: 60px; margin: -30px 0 0 -960px; }
+  .horizon .hz { fill: none; stroke: var(--muted); stroke-width: var(--stroke); }
+  .horizon .tk { stroke: var(--line); stroke-width: 2; }
+  .caps-title { position: relative; font-size: 84px; background: var(--panel); }
+  .caps-title .w { display: inline-block; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="title-wrap">
+      <svg class="horizon" viewBox="0 0 1920 60" width="1920" height="60">
+        <defs>
+          <linearGradient id="fade" x1="0" x2="1" y1="0" y2="0">
+            <stop offset="0" stop-color="#000"/>
+            <stop offset="0.07" stop-color="#fff"/>
+            <stop offset="0.93" stop-color="#fff"/>
+            <stop offset="1" stop-color="#000"/>
+          </linearGradient>
+          <mask id="edge" maskUnits="userSpaceOnUse" x="0" y="0" width="1920" height="60">
+            <rect width="1920" height="60" fill="url(#fade)"/>
+          </mask>
+        </defs>
+        <g mask="url(#edge)">
+          <g class="ticks"></g>
+          <path class="hz" d="M 960 30 H 0"/>
+          <path class="hz" d="M 960 30 H 1920"/>
+        </g>
+      </svg>
+      <div class="caps-title"><span class="w auto t-auto">AUTOPILOT,</span> <span class="w human t-pilots">PILOTS,</span> <span class="w human t-eng">ENGINEERS</span></div>
+    </div>
+    <div class="status">PART 1/3 · FROM GYRO TO AUTOLAND</div>
+  </div>
+</div>
+<script>
+const { at, end } = EV;
+
+// A heading-tape scale under the horizon: a tick every 40 px, a long one every third.
+const ticks = document.querySelector(".ticks");
+for (let i = 0; i < 52; i++) {
+  const x = 20 + i * 40, long = i % 3 === 0;
+  const tk = document.createElementNS("http://www.w3.org/2000/svg", "line");
+  tk.setAttribute("class", "tk");
+  tk.setAttribute("x1", x); tk.setAttribute("x2", x);
+  tk.setAttribute("y1", 36); tk.setAttribute("y2", long ? 50 : 44);
+  ticks.appendChild(tk);
+}
+
+// The box appears, the horizon draws out from behind it and settles level.
+EV.from(".caps-title", { opacity: 0, duration: 0.6 }, at("payoff"));
+EV.draw(".hz", at("payoff") + 0.2, 1.4);
+EV.fromTo(".horizon", { rotate: -3 }, { rotate: 0, duration: 2.2, ease: "power2.inOut" }, at("payoff") + 0.2);
+EV.from(".ticks", { opacity: 0, duration: 0.8 }, at("payoff") + 1.2);
+EV.to(".ticks", { x: -80, duration: end("payoff") - 1.2, ease: "none" }, at("payoff") + 1.2);
+
+// Each title word appears as the voice says it.
+EV.from(".t-pilots", { opacity: 0, y: 14 }, at("payoff", "pilots") + 0.15);
+EV.from(".t-auto", { opacity: 0, y: 14 }, at("payoff", "autopilot"));
+EV.from(".t-eng", { opacity: 0, y: 14 }, at("payoff", "engineers"));
+
+// The status line types on.
+EV.type(".status", at("payoff", "need"), 1.3);
+
+EV.ready();
+</script>
+</body>
+</html>

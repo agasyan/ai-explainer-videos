@@ -1,0 +1,72 @@
+/* This video's look, on top of the instrument moodboard (/ev/theme.css).
+   One color per concept, for the whole video:
+     --auto     cyan   automation: the autopilot, the gyro, AI code tools, normal readouts
+     --human    white  the human: pilot, crew, engineer, hand skill
+     --caution  amber  cautions only: AUTOPILOT OFF, LOOKS RIGHT, a skill that fades, a gap
+     --warning  red    warnings only: STALL, WRONG
+     --normal   green  a normal, safe state: PILOT IN COMMAND, YOU IN COMMAND
+   Years, units, and source lines are --muted. */
+:root {
+  --auto: var(--accent);
+  --human: var(--ink);
+  --caution: var(--accent-2);
+  --warning: var(--bad);
+  --normal: var(--good);
+}
+
+/* A glass screen: a faint glow in the middle, near-black at the edges. */
+.stage { background: radial-gradient(ellipse at 50% 42%, #101a26 0%, var(--bg) 68%); }
+
+/* title treatment: narrow display caps in a thin box, a mono status line below. */
+.caps-title { font-family: var(--display); font-size: 104px; font-weight: 700; line-height: 1.05;
+              letter-spacing: 0.04em; text-transform: uppercase; text-align: center;
+              border: var(--stroke) solid var(--line); border-radius: var(--radius); padding: 28px 56px; }
+.status { font-family: var(--mono); font-size: 32px; letter-spacing: 0.08em; text-transform: uppercase;
+          color: var(--muted); white-space: nowrap; }
+
+/* PART n/3 badge, pinned to the top left of .safe. */
+.badge { position: absolute; top: 0; left: 0; font-family: var(--mono); font-size: 30px; letter-spacing: 0.1em;
+         color: var(--muted); border: 2px solid var(--line); border-radius: var(--radius); padding: 6px 16px;
+         white-space: nowrap; }
+
+/* A boxed value with its unit, in the mono font. Color it with a concept class (default: --auto). */
+.readout { font-family: var(--mono); font-size: 64px; font-weight: 700; line-height: 1; color: var(--auto);
+           background: var(--panel); border: 2px solid currentColor; border-radius: var(--radius);
+           padding: 16px 28px; white-space: nowrap; }
+.readout .unit { font-size: 36px; font-weight: 400; color: var(--muted); margin-left: 10px; }
+.readout.big { font-size: 120px; padding: 20px 40px; }
+.readout.big .unit { font-size: 56px; }
+
+/* A boxed label or alert tag. An alert appears and then stays steady: never blink or pulse it. */
+.tag { font-family: var(--mono); font-size: 34px; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase;
+       color: var(--auto); background: var(--panel); border: 2px solid currentColor; border-radius: var(--radius);
+       padding: 10px 22px; white-space: nowrap; }
+.tag.muted { color: var(--muted); border-color: var(--line); }
+
+/* A small label over a readout or a tape: mono caps, muted. */
+.cap { font-family: var(--mono); font-size: 30px; letter-spacing: 0.08em; text-transform: uppercase;
+       color: var(--muted); white-space: nowrap; }
+
+/* A source line under a fact. */
+.src { font-family: var(--mono); font-size: 28px; color: var(--muted); white-space: nowrap; }
+
+/* flow treatment: boxes joined by thin lines; a cyan marker moves one step at a time. */
+.flow-box { font-family: var(--display); font-size: 44px; font-weight: 700; letter-spacing: 0.03em;
+            text-transform: uppercase; text-align: center; color: var(--muted); background: var(--panel);
+            border: var(--stroke) solid var(--line); border-radius: var(--radius); padding: 24px 32px; }
+.flow-box .step { display: block; font-family: var(--mono); font-size: 28px; font-weight: 400; letter-spacing: 0.1em;
+                  color: var(--muted); margin-bottom: 8px; }
+
+/* SVG strokes: thin crisp lines. Tapes, ticks, wires, and routes. */
+.wire { fill: none; stroke: var(--line); stroke-width: var(--stroke); stroke-linecap: square; }
+.wire.auto { stroke: var(--auto); } .wire.human { stroke: var(--human); } .wire.caution { stroke: var(--caution); }
+.wire.warning { stroke: var(--warning); } .wire.normal { stroke: var(--normal); }
+.marker { fill: var(--auto); }
+
+/* A full-stage canvas for 3D, behind .safe; labels stay in HTML inside .safe. */
+.gl { position: absolute; inset: 0; width: 100%; height: 100%; }
+
+/* Concept colors, as text color; borders follow with currentColor.
+   Last in the file, so `.tag.caution` or `.readout.human` beats the cyan default of .tag and .readout. */
+.auto { color: var(--auto); } .human { color: var(--human); } .caution { color: var(--caution); }
+.warning { color: var(--warning); } .normal { color: var(--normal); }

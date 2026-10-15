@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* This scene places everything by hand: the time tape on top, one stage area below it. */
+  .safe { display: block; }
+
+  /* timeline treatment: a horizontal time tape in years. A fixed cyan pointer marks the current year;
+     the tape slides under it. The window fades the tape out at both ends. */
+  .tape-window { position: absolute; left: 0; right: 0; top: 8px; height: 184px; overflow: hidden;
+                 -webkit-mask-image: linear-gradient(90deg, transparent 0, black 120px, black calc(100% - 120px), transparent 100%);
+                 mask-image: linear-gradient(90deg, transparent 0, black 120px, black calc(100% - 120px), transparent 100%); }
+  .tape { position: absolute; left: 0; top: 0; height: 184px; }
+  .tape svg { position: absolute; left: 0; top: 0; }
+  .slot { position: absolute; top: 0; width: 0; display: flex; justify-content: center; }
+  .yr { font-family: var(--mono); font-size: 30px; line-height: 1.2; letter-spacing: 0.08em; color: var(--muted);
+        background: var(--panel); border: 2px solid var(--line); border-radius: var(--radius); padding: 4px 14px;
+        white-space: nowrap; }
+  .evt { stroke: var(--muted); }
+  .pointer { position: absolute; left: calc(50% - 14px); top: 156px; }
+
+  /* The stage area: one event at a time, a line drawing on the left and its labels on the right. */
+  .stage-area { position: absolute; left: 0; right: 0; top: 240px; bottom: 0; }
+  .grp { position: absolute; inset: 0; }
+  .art { position: absolute; left: 100px; top: 0; }
+  .art.wide { left: 0; }
+  .col { position: absolute; left: 1000px; right: 0; top: 0; bottom: 0; display: flex; flex-direction: column;
+         justify-content: center; align-items: flex-start; gap: 36px; }
+  .ln-muted { stroke: var(--muted); }
+  .fill-panel { fill: var(--panel); }
+  .wire.thick { stroke-width: 3; }
+  .dash { stroke-dasharray: 16 14; }
+  .tag.two { white-space: normal; line-height: 1.3; }
+
+  /* atlantic: tags sit under the two end dots of the route. */
+  .tslot { position: absolute; top: 440px; width: 0; display: flex; justify-content: center; }
+
+  /* today: one boxed readout with its label, and a bar scale that fills to the value. */
+  .td-gauge { position: absolute; left: 0; right: 0; top: 50px; display: flex; flex-direction: column;
+              align-items: center; gap: 22px; }
+  .td-num { display: inline-block; min-width: 2ch; text-align: right; }
+  .td-bar { position: relative; width: 760px; height: 28px; background: var(--panel); border: 2px solid var(--line);
+            border-radius: var(--radius); overflow: hidden; }
+  .td-fill { position: absolute; inset: 0; background: var(--auto); transform-origin: left center; }
+  .td-next { position: absolute; right: 0; bottom: 24px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+
+    <div class="tape-window"><div class="tape"><svg></svg></div></div>
+    <svg class="pointer" width="28" height="24" viewBox="0 0 28 24"><polygon class="marker" points="0,24 14,0 28,24"/></svg>
+
+    <div class="stage-area">
+
+      <!-- post: 1933, a solo flight around the world -->
+      <div class="grp g-post">
+        <svg class="art" width="840" height="568" viewBox="0 0 840 568">
+          <g class="post-globe">
+            <circle class="wire ln-muted" cx="420" cy="290" r="150"/>
+            <ellipse class="wire" cx="420" cy="290" rx="62" ry="150"/>
+            <ellipse class="wire" cx="420" cy="290" rx="116" ry="150"/>
+            <ellipse class="wire" cx="420" cy="290" rx="150" ry="36"/>
+          </g>
+          <path id="post-route" class="wire auto thick"/>
+          <circle id="post-plane" class="marker" r="10"/>
+        </svg>
+        <div class="col">
+          <div class="tag post-tag">MECHANICAL MIKE</div>
+          <div class="readout post-read">7<span class="unit">d</span> 18<span class="unit">h</span> 49<span class="unit">m</span></div>
+        </div>
+      </div>
+
+      <!-- atlantic: 1947, an ocean crossing with automatic takeoff and landing -->
+      <div class="grp g-atl">
+        <svg class="art wide" width="1728" height="568" viewBox="0 0 1728 568">
+          <g class="atl-base">
+            <path id="atl-wave-1" class="wire"/>
+            <path id="atl-wave-2" class="wire"/>
+            <circle id="atl-from" class="wire auto thick fill-panel" cx="430" cy="380" r="12"/>
+            <circle id="atl-to" class="wire auto thick fill-panel" cx="1298" cy="380" r="12"/>
+          </g>
+          <path id="atl-route" class="wire auto thick" d="M 430 380 C 650 100, 1078 100, 1298 380"/>
+          <polygon id="atl-plane" class="marker" points="13,0 -13,-10 -6,0 -13,10"/>
+        </svg>
+        <div class="tslot" style="left: 430px"><div class="tag atl-off">AUTO TAKEOFF</div></div>
+        <div class="tslot" style="left: 1298px"><div class="tag atl-land">AUTO LAND</div></div>
+      </div>
+
+      <!-- autoland: 1965, the first automatic landing on a passenger flight -->
+      <div class="grp g-al">
+        <svg class="art" width="840" height="568" viewBox="0 0 840 568">
+          <g class="al-runway">
+            <polygon class="wire ln-muted fill-panel" points="300,470 540,470 790,200 712,200"/>
+            <line class="wire ln-muted" x1="317" y1="459" x2="550" y2="459"/>
+            <line class="wire ln-muted dash" x1="440" y1="454" x2="731" y2="216"/>
+          </g>
+          <path id="al-glide" class="wire auto thick" d="M 167 116 L 493 411"/>
+          <circle id="al-touch" class="wire auto thick" cx="493" cy="411" r="18"/>
+          <polygon id="al-plane" class="marker" points="13,0 -13,-10 -6,0 -13,10"/>
+        </svg>
+        <div class="col">
+          <div class="tag two al-tag">FIRST AUTOLAND<br>PASSENGER FLIGHT</div>
+        </div>
+      </div>
+
+      <!-- flybywire: 1988, stick to computer to wing -->
+      <div class="grp g-fbw">
+        <svg class="art" width="840" height="568" viewBox="0 0 840 568">
+          <g class="fbw-part">
+            <rect class="wire human fill-panel" x="60" y="290" width="100" height="20" rx="3"/>
+            <line class="wire human" x1="110" y1="290" x2="110" y2="196"/>
+            <rect class="wire human fill-panel" x="92" y="128" width="36" height="68" rx="16"/>
+          </g>
+          <g class="fbw-part">
+            <rect class="wire auto fill-panel" x="300" y="240" width="160" height="120" rx="4"/>
+            <rect class="wire auto" x="350" y="270" width="60" height="60" rx="2"/>
+            <path class="wire auto" d="M 362 258 V 270 M 380 258 V 270 M 398 258 V 270 M 362 330 V 342 M 380 330 V 342 M 398 330 V 342"/>
+          </g>
+          <g class="fbw-part">
+            <polygon class="wire ln-muted fill-panel" points="600,236 640,236 820,356 820,384 600,350"/>
+            <polygon id="fbw-aileron" class="wire ln-muted fill-panel" points="700,365 800,381 800,362 700,346"/>
+          </g>
+          <path class="wire auto thick fbw-wire" d="M 160 300 H 300"/>
+          <path class="wire auto thick fbw-wire" d="M 460 300 H 600"/>
+        </svg>
+        <div class="col">
+          <div class="tag fbw-tag">DIGITAL FLY-BY-WIRE</div>
+        </div>
+      </div>
+
+      <!-- today: automation is on about 90 % of the time -->
+      <div class="grp g-today">
+        <div class="td-gauge">
+          <div class="cap">AUTOMATION ON</div>
+          <div class="readout big"><span class="td-num">0</span><span class="unit">%</span></div>
+          <div class="td-bar"><div class="td-fill"></div></div>
+          <svg width="760" height="18" viewBox="0 0 760 18">
+            <path class="wire" d="M 1 0 V 18 M 190 0 V 12 M 380 0 V 18 M 570 0 V 12 M 759 0 V 18"/>
+          </svg>
+        </div>
+        <div class="tag muted td-next">NEXT · PART 2/3</div>
+      </div>
+
+    </div>
+  </div>
+</div>
+<script>
+const { at } = EV;
+const NS = "http://www.w3.org/2000/svg";
+const svgEl = (parent, tag, attrs) => {
+  const e = parent.appendChild(document.createElementNS(NS, tag));
+  Object.entries(attrs).forEach(([k, v]) => e.setAttribute(k, v));
+  return e;
+};
+
+// ---------- the time tape ----------
+const S = 12, Y0 = 1810, Y1 = 2032;   // px per year; the tape runs from 1810 to 2032
+const X = y => (y - Y0) * S;          // a year's x on the tape
+const EVENTS = [
+  { beat: "post", year: 1933, text: "1933", word: "thirty" },
+  { beat: "atlantic", year: 1947, text: "1947", word: "forty" },
+  { beat: "autoland", year: 1965, text: "1965", word: "sixty" },
+  { beat: "flybywire", year: 1988, text: "1988", word: "eighty" },
+  { beat: "today", year: 2026, text: "TODAY", word: "automation" },
+];
+
+const tape = document.querySelector(".tape");
+const tsvg = tape.querySelector("svg");
+const W = X(Y1);
+tape.style.width = `${W}px`;
+Object.entries({ width: W, height: 184, viewBox: `0 0 ${W} 184` }).forEach(([k, v]) => tsvg.setAttribute(k, v));
+for (let y = Y0; y <= 2030; y += 5)  // a tick every 5 years, taller each decade
+  svgEl(tsvg, "line", { class: "wire", x1: X(y), x2: X(y), y1: y % 10 ? 124 : 108, y2: 140 });
+svgEl(tsvg, "line", { class: "wire ln-muted", x1: 0, x2: W, y1: 140, y2: 140 });
+EVENTS.forEach(e => {
+  e.tick = svgEl(tsvg, "line", { class: "wire evt", x1: X(e.year), x2: X(e.year), y1: 52, y2: 140 });
+  const slot = tape.appendChild(Object.assign(document.createElement("div"), { className: "slot" }));
+  slot.style.left = `${X(e.year)}px`;
+  e.label = slot.appendChild(Object.assign(document.createElement("div"), { className: "yr", textContent: e.text }));
+});
+
+const CX = document.querySelector(".tape-window").clientWidth / 2;  // the pointer, at the middle of the window
+const tapeX = y => CX - X(y);
+const HALF = 70, EDGE = 24;  // a year label's half width (generous), and its margin from the window edge
+const fits = (y, centre) => Math.abs(y - centre) * S + HALF <= CX - EDGE;
+
+EVENTS.forEach((e, i) => {
+  const t0 = at(e.beat);
+  // The tape slides so the current year sits on the pointer.
+  if (i === 0) EV.fromTo(".tape", { x: tapeX(e.year) + 360, opacity: 0 }, { x: tapeX(e.year), opacity: 1, duration: 0.9 }, t0);
+  else EV.to(".tape", { x: tapeX(e.year), duration: 0.8, ease: "power2.inOut" }, t0);
+  // Labels too far from the pointer fade out, so none leaves the screen; past labels stay lit but dimmer.
+  EVENTS.forEach((o, j) => {
+    const opacity = !fits(o.year, e.year) ? 0 : j < i ? 0.5 : 1;
+    if (i === 0) EV.set(o.label, { opacity }, t0);
+    else EV.to(o.label, { opacity, duration: 0.4 }, t0);
+  });
+  // The tick lights as the year is said, and dims when the next beat starts.
+  const lit = at(e.beat, e.word);
+  EV.to(e.label, { color: "var(--auto)", borderColor: "var(--auto)" }, lit);
+  EV.to(e.tick, { stroke: "var(--auto)" }, lit);
+  const next = EVENTS[i + 1];
+  if (next) {
+    EV.to(e.label, { borderColor: "var(--line)" }, at(next.beat));
+    EV.to(e.tick, { opacity: 0.5 }, at(next.beat));
+  }
+});
+EV.from(".pointer", { opacity: 0 }, at("post") + 0.4);
+
+// ---------- post: 1933 ----------
+// The route: a tilted ellipse around the globe, from its left end, over the top, and back.
+const orbit = (cx, cy, rx, ry, deg, n = 120) => {
+  const a = (deg * Math.PI) / 180;
+  return Array.from({ length: n + 1 }, (_, k) => {
+    const t = Math.PI + (k / n) * 2 * Math.PI, x = rx * Math.cos(t), y = ry * Math.sin(t);
+    return `${k ? "L" : "M"} ${(cx + x * Math.cos(a) - y * Math.sin(a)).toFixed(1)} ${(cy + x * Math.sin(a) + y * Math.cos(a)).toFixed(1)}`;
+  }).join(" ");
+};
+document.querySelector("#post-route").setAttribute("d", orbit(420, 290, 250, 64, -14));
+
+EV.from(".post-globe", { opacity: 0 }, at("post", "Wiley"));
+EV.draw("#post-route", at("post", "flies"), 2.0);
+EV.from("#post-plane", { opacity: 0 }, at("post", "flies"));
+EV.path("#post-plane", "#post-route", at("post", "flies"), 2.0);
+EV.from(".post-read", { opacity: 0 }, at("post", "world"));
+EV.from(".post-tag", { opacity: 0 }, at("post", "Mechanical"));
+EV.to(".g-post", { opacity: 0, duration: 0.3 }, at("atlantic"));
+
+// ---------- atlantic: 1947 ----------
+const wave = (x0, x1, y, amp = 6, len = 48) => {
+  let d = `M ${x0} ${y}`;
+  for (let x = x0; x + len <= x1; x += len) d += ` q ${len / 4} ${-amp} ${len / 2} 0 t ${len / 2} 0`;
+  return d;
+};
+document.querySelector("#atl-wave-1").setAttribute("d", wave(490, 1238, 392));
+document.querySelector("#atl-wave-2").setAttribute("d", wave(514, 1214, 414));
+
+EV.from(".atl-base", { opacity: 0 }, at("atlantic", "Air"));
+EV.draw("#atl-route", at("atlantic", "crosses"), 1.6);
+EV.from("#atl-plane", { opacity: 0, duration: 0.2 }, at("atlantic", "takes"));
+EV.path("#atl-plane", "#atl-route", at("atlantic", "takes"), 0.9, { rotate: true });
+EV.to("#atl-from", { fill: "var(--auto)" }, at("atlantic", "takes"));
+EV.from(".atl-off", { opacity: 0 }, at("atlantic", "takes"));
+EV.to("#atl-to", { fill: "var(--auto)" }, at("atlantic", "lands"));
+EV.from(".atl-land", { opacity: 0 }, at("atlantic", "lands"));
+EV.to(".g-atl", { opacity: 0, duration: 0.3 }, at("autoland"));
+
+// ---------- autoland: 1965 ----------
+EV.from(".al-runway", { opacity: 0 }, at("autoland", "Trident"));
+EV.draw("#al-glide", at("autoland", "makes"), 1.0);
+EV.from("#al-plane", { opacity: 0, duration: 0.2 }, at("autoland", "automatic"));
+EV.path("#al-plane", "#al-glide", at("autoland", "automatic"), 1.0, { rotate: true });
+EV.from("#al-touch", { opacity: 0 }, at("autoland", "automatic") + 1.0);
+EV.from(".al-tag", { opacity: 0 }, at("autoland", "automatic"));
+EV.to(".g-al", { opacity: 0, duration: 0.3 }, at("flybywire"));
+
+// ---------- flybywire: 1988 ----------
+EV.from(".fbw-part", { opacity: 0, stagger: 0.08 }, at("flybywire", "enters"));
+EV.from(".fbw-tag", { opacity: 0 }, at("flybywire", "digital"));
+EV.draw(".fbw-wire", at("flybywire", "fly"), 0.45, { stagger: 0.45 });
+EV.to("#fbw-aileron", { fill: "var(--auto)", stroke: "var(--auto)", duration: 0.3 }, at("flybywire", "fly") + 0.9);
+EV.to(".g-fbw", { opacity: 0, duration: 0.3 }, at("today"));
+
+// ---------- today ----------
+EV.from(".td-gauge", { opacity: 0 }, at("today", "automation"));
+EV.count(".td-num", 0, 90, at("today", "ninety"), 1.0);
+EV.fromTo(".td-fill", { scaleX: 0 }, { scaleX: 0.9, duration: 1.0, ease: "power1.out" }, at("today", "ninety"));
+EV.from(".td-next", { opacity: 0 }, at("today", "Next"));
+
+EV.ready();
+</script>
+</body>
+</html>

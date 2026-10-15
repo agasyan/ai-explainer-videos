@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* Layout only, in .safe space (1728 x 808). Colors come from style.css. */
+  .layer { position: absolute; left: 0; top: 0; width: 1728px; height: 808px; }
+
+  /* flow: four boxes (360 wide, 80 apart) in one row, top 250; a rail below joins them at y 520. */
+  .flow-box { position: absolute; top: 250px; width: 360px; height: 220px; padding: 0 16px;
+              display: flex; flex-direction: column; align-items: center; justify-content: center; line-height: 1.1; }
+  .flow-box .lbl { display: block; }
+  .flow-box .step { line-height: 36px; }  /* whole-pixel line box, so lint reads the full 28 px */
+  .rail { fill: none; stroke: var(--muted); stroke-width: var(--stroke); }
+  .seg { fill: none; stroke: none; }
+
+  /* The action: one green tag and one white line under the collapsed row. */
+  .act { position: absolute; left: 0; right: 0; top: 360px; display: flex; flex-direction: column;
+         align-items: center; gap: 44px; }
+  .act .tag { font-size: 64px; padding: 14px 36px; }
+  .status.human { color: var(--human); font-size: 40px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <svg class="layer" id="wires" width="1728" height="808" viewBox="0 0 1728 808">
+      <path class="rail" d="M 204 470 V 520 M 644 470 V 520 M 1084 470 V 520 M 1524 470 V 520 M 204 520 H 1524"/>
+      <path id="seg1" class="seg" d="M 204 520 H 644"/>
+      <path id="seg2" class="seg" d="M 644 520 H 1084"/>
+      <path id="seg3" class="seg" d="M 1084 520 H 1524"/>
+      <path id="marker" class="marker" d="M 0 -15 L 15 0 L 0 15 L -15 0 Z"/>
+    </svg>
+
+    <div class="flow-box" id="b1" style="left: 24px;"><span class="step">1/4</span><span class="lbl">Data<br>structures</span></div>
+    <div class="flow-box" id="b2" style="left: 464px;"><span class="step">2/4</span><span class="lbl">Debugging</span></div>
+    <div class="flow-box" id="b3" style="left: 904px;"><span class="step">3/4</span><span class="lbl">Security</span></div>
+    <div class="flow-box" id="b4" style="left: 1344px;"><span class="step">4/4</span><span class="lbl">System<br>design</span></div>
+
+    <div class="act">
+      <div class="tag normal" id="command">You in command</div>
+      <div class="status human" id="week">This week · 1 bug by hand, then compare</div>
+    </div>
+  </div>
+</div>
+<script>
+const { at } = EV;
+const lit = { color: "var(--human)", borderColor: "var(--human)", duration: 0.3 };
+
+// Beat skills: the row and its rail appear; each box lights white as the marker reaches it.
+// All four light before the voice says "check, debug", so no box seems to stand for one of those words.
+EV.from(".flow-box", { opacity: 0, stagger: 0.08 }, at("skills"));
+EV.draw(".rail", at("skills"), 0.6);
+EV.from("#marker", { opacity: 0 }, at("skills", "computer"));
+EV.to("#b1", lit, at("skills", "computer"));
+EV.path("#marker", "#seg1", at("skills", "software"), 0.4, { ease: "power2.out" });
+EV.to("#b2", lit, at("skills", "software"));
+EV.path("#marker", "#seg2", at("skills", "hand"), 0.4, { ease: "power2.out" });
+EV.to("#b3", lit, at("skills", "hand"));
+EV.path("#marker", "#seg3", at("skills", "skills"), 0.4, { ease: "power2.out" });
+EV.to("#b4", lit, at("skills", "skills"));
+
+// Beat action: box text fades, the boxes shrink into one white line, then the command and the task.
+EV.to(".flow-box .step, .flow-box .lbl, #wires", { opacity: 0, duration: 0.3 }, at("action"));
+EV.to(".flow-box", { scaleY: 0.06, y: -100, backgroundColor: "var(--human)", duration: 0.6, stagger: 0.08 },
+      at("action", "tools"));
+EV.from("#command", { opacity: 0 }, at("action", "command"));
+EV.from("#week", { opacity: 0 }, at("action", "This week"));
+
+EV.ready();
+</script>
+</body>
+</html>

@@ -1,0 +1,177 @@
+title: "Autopilot, pilots, and engineers in the LLM era"
+brief:
+  viewer: Software engineers, CS students, and tech colleagues who use AI coding tools; they know little aviation history
+  takeaway: The autopilot flies most of a flight, yet pilots still train to fly by hand because the human takes the hardest moments; with LLMs writing code, CS and SE fundamentals are the engineer's hand-flying skill
+  points:
+    - "1914 to 1988: the autopilot grows from Sperry's gyro to automatic landing and digital fly-by-wire; today automation is on about 90% of the time"
+    - "Air France 447 (2009): the autopilot disconnected and the crew did not recognize the stall; Bainbridge (1983): automation leaves people the hardest moments, and unused skills fade"
+    - "The fix: FAA guidance for more hand flying (2013), simulator training for stalls and upsets, and the pilot stays the final authority"
+    - "The same irony with LLMs: the engineer's role shifts from writing code to checking it; studies show weaker debugging and false confidence"
+    - "Lesson: use AI like an autopilot, and keep the fundamentals to check, debug, and take over"
+  example: In a 2026 trial, developers who learned a new library with AI scored 50% on a quiz, against 67% without AI, with the biggest gap on debugging
+  sources:
+    - "research.md: 49 claims, each opened on the page (NASM, BEA, FAA via faasafety.gov, Federal Register, Anthropic, METR, Microsoft Research, Stanford, and others)"
+  guesses: []
+format: landscape         # landscape | story | both
+moodboard: instrument     # the look: step 1 picks one from moodboards/
+video_format: history-lesson  # the structure: step 1 picks one from video-formats/
+picks:                    # step 1, the recommender: 3 each, the pick first, then 2 alternatives, each with a why
+  video_format:
+    - {name: history-lesson, why: "Its five acts follow the brief in order: Sperry to fly-by-wire, then AF447 and Bainbridge, then the 2013 FAA fix, then the LLM lesson for today."}
+    - {name: incident-review, why: "Engineers already know the blameless postmortem, so telling AF447 as timeline, cause, and what changed puts the lesson in their own terms."}
+    - {name: compare, why: "Shows pilot and autopilot next to engineer and LLM on the same criteria: who does the routine work, who takes over, and which skill fades."}
+  moodboard:
+    - {name: instrument, why: "Its cockpit readouts, attitude-sphere 3D, and amber-to-red alerts match the Sperry roll, the AF447 disconnect and stall, and the monitoring feel of part 3."}
+    - {name: blueprint, why: "White line art on a grid with 3D support suits the gyro and wireframe planes, and the engineering-drawing look suits an engineer audience."}
+    - {name: editorial, why: "A calm 2D fallback for a history and policy essay, from the Bainbridge quote to the FAA rule, if the user prefers no cockpit look."}
+three: true               # allow 3D (three.js) where it explains better than 2D; each 3D scene needs three_why
+voice: am_michael         # Kokoro, local: af_heart, af_bella, am_michael, am_fenrir (US); bf_emma, bm_george (UK)
+speed: 1.0                # 0.9 is slower, 1.1 is faster
+gap: 0.35                 # seconds of silence after each beat
+captions: pop             # pop (words appear as said), line (whole line, words light up), or off
+engine: playwright        # playwright, or hyperframes (parallel, faster, plays <video> clips; docs/scenes.md)
+
+# Three parts of about 60 s each. Scene ids are unique across parts.
+# *Asterisks* in `say` mark key words: the voice ignores them, and the captions color them.
+parts:
+  - title: From gyro to autoland
+    scenes:
+      - id: opening
+        treatment: title
+        beats:
+          - id: payoff
+            say: Pilots still train to *fly by hand*, even with an autopilot. Engineers need their basics with A I for the same reason.
+            show: "Title in a thin box: AUTOPILOT, PILOTS, ENGINEERS. A mono status line below: PART 1/3 · FROM GYRO TO AUTOLAND."
+      - id: sperry
+        treatment: stage-3d
+        three_why: Stability is a rotation; a 3D wireframe plane shows the wings stay level while weight moves out on one wing
+        beats:
+          - id: hands
+            say: It starts in *nineteen fourteen*, near Paris. Lawrence Sperry flies past the judges with his hands in the air.
+            show: "A cyan wireframe biplane flies level in a slow orbit. A boxed label: 1914 · PARIS. A tag appears: HANDS OFF."
+            sources: [c2, c3]
+          - id: wing
+            say: His mechanic walks out onto the wing. The gyro keeps the plane *level*.
+            show: "A small marker moves out along one wing. The plane rolls a few degrees, then the wings return level. Label: GYRO STABILIZER."
+            sources: [c1, c3]
+      - id: milestones
+        treatment: timeline
+        beats:
+          - id: post
+            say: In nineteen thirty three, Wiley Post flies alone around the world. His autopilot, *Mechanical Mike*, helps him.
+            show: "A horizontal time tape slides in. Tick 1933 lights with a boxed label: MECHANICAL MIKE. A readout: 7 d 18 h 49 m."
+            sources: [c6, c7, c8]
+          - id: atlantic
+            say: In nineteen forty seven, an Air Force plane crosses the Atlantic. It takes off and lands *by itself*.
+            show: "Tick 1947 lights. A small route line draws from Newfoundland to England. Two boxed tags: AUTO TAKEOFF, AUTO LAND."
+            sources: [c4, c5]
+          - id: autoland
+            say: In nineteen sixty five, a Trident airliner makes the first *automatic landing* on a passenger flight.
+            show: "Tick 1965 lights. A runway icon with a glide line. Boxed label: FIRST AUTOLAND, PASSENGER FLIGHT."
+            sources: [c10]
+          - id: flybywire
+            say: In nineteen eighty eight, the A three twenty enters service with digital *fly by wire*.
+            show: "Tick 1988 lights. A boxed label: DIGITAL FLY-BY-WIRE. A thin line runs from a stick to a computer box to a wing."
+            sources: [c12, c13]
+          - id: today
+            say: Today, automation is on about *ninety percent* of the time. Next, why pilots still train so hard.
+            show: "The tape slides to TODAY. A boxed mono readout counts up to 90 % with the label AUTOMATION ON. A small tag: NEXT · PART 2/3."
+            sources: [c14]
+
+  - title: Why pilots still train
+    scenes:
+      - id: af447
+        treatment: stage-3d
+        three_why: A stall is about where the nose points against where the plane goes; 3D shows the nose up while the flight path falls
+        beats:
+          - id: context
+            say: Part two. What happens when the autopilot *disconnects*?
+            show: "Badge PART 2/3. A cyan wireframe airliner cruises level against a dark sky, in a slow orbit."
+          - id: flight
+            say: In two thousand nine, Air France four four seven flies from Rio to Paris.
+            show: "A boxed label: AF447 · 2009 · RIO → PARIS. The wireframe airliner holds level."
+            sources: [c20]
+          - id: ice
+            say: Ice blocks the speed sensors. The speed readings disagree, and the autopilot *disconnects*.
+            show: "Two boxed speed readouts show different values. An amber caution tag appears and stays: AUTOPILOT OFF."
+            sources: [c21]
+          - id: stall
+            say: The crew flies by hand, at high altitude. They do not recognize that the plane has *stalled*.
+            show: "The airliner pitches nose up while a red arrow shows its path falling. A red warning tag appears and stays: STALL."
+            sources: [c22]
+          - id: toll
+            say: All *two hundred twenty eight* people on board die. Investigators name a gap in hand flying training.
+            show: "The 3D view fades. A boxed readout: 228 ON BOARD. A line below: GAP · HAND FLYING TRAINING."
+            sources: [c20, c23]
+      - id: irony
+        treatment: compare
+        beats:
+          - id: named
+            say: A nineteen eighty three paper calls this an *irony of automation*.
+            show: "A boxed title: IRONIES OF AUTOMATION · BAINBRIDGE 1983. Two empty tapes appear side by side, labelled AUTOMATION and HUMAN."
+            sources: [c24, c25]
+          - id: hardest
+            say: The automation does the easy parts. The human takes over only in the *hardest moments*.
+            show: "The AUTOMATION tape fills with many cyan ticks, EASY. The HUMAN tape gets one amber tick, HARDEST."
+            sources: [c25]
+          - id: fade
+            say: And a skill that you do not use starts to *fade*.
+            show: "A boxed readout HAND SKILL slides down its tape from high to low."
+            sources: [c24]
+      - id: fix
+        treatment: flow
+        beats:
+          - id: guidance
+            say: In two thousand thirteen, the F A A urges airlines to allow more *hand flying*.
+            show: "A flow of three boxes appears; box 1/3 lights: FAA 2013 · MORE HAND FLYING."
+            sources: [c26]
+          - id: simulator
+            say: A new rule makes pilots train stall recovery in a *simulator*.
+            show: "A cyan marker moves to box 2/3: SIMULATOR · STALL RECOVERY."
+            sources: [c28]
+          - id: command
+            say: By law, the pilot stays the *final authority*. Next, the same lesson for code.
+            show: "The marker moves to box 3/3: PILOT IN COMMAND. A small tag: NEXT · PART 3/3."
+            sources: [c19]
+
+  - title: The same lesson for code
+    scenes:
+      - id: shift
+        treatment: compare
+        beats:
+          - id: context
+            say: Part three. Researchers now see the same irony in A I tools that *write code*.
+            show: "Badge PART 3/3. Left box: AUTOPILOT. Right box: AI CODE ASSISTANT. A thin equals sign joins them."
+            sources: [c40]
+          - id: role
+            say: Your job shifts from *writing* code to *checking* it.
+            show: "Two tapes: WRITE slides down, CHECK slides up."
+            sources: [c41]
+          - id: plausible
+            say: But a model can produce an answer that sounds right and is *wrong*.
+            show: "A code card with a green-looking line and one amber tag: LOOKS RIGHT. The tag turns red: WRONG."
+            sources: [c48]
+      - id: evidence
+        treatment: big-number
+        beats:
+          - id: quiz
+            say: In a twenty twenty six trial, developers learned a new library. With A I, they scored *fifty percent* on a quiz. Without it, sixty seven.
+            show: "Two boxed readouts on one tape: WITH AI 50 %, WITHOUT AI 67 %. Small source line: Anthropic trial, 2026."
+            sources: [c34]
+          - id: debug
+            say: The biggest gap was in *debugging*, the skill you need when the code breaks.
+            show: "A boxed tag lights on the gap between the two readouts: BIGGEST GAP · DEBUGGING."
+            sources: [c36]
+          - id: confident
+            say: In a Stanford study, people with an A I tool wrote less secure code, yet felt *more sure* that it was safe.
+            show: "Two dials side by side: SECURITY drops to amber, CONFIDENCE rises. Small source line: Stanford study."
+            sources: [c37]
+      - id: basics
+        treatment: flow
+        beats:
+          - id: skills
+            say: So computer science and software engineering are your *hand flying* skills. They let you check, debug, and take over.
+            show: "A flow of four boxes lights one by one: DATA STRUCTURES, DEBUGGING, SECURITY, SYSTEM DESIGN."
+          - id: action
+            say: Use A I tools like an autopilot, with you *in command*. This week, fix one bug by hand first. Then ask the tool, and compare.
+            show: "The boxes shrink into one line. A boxed mono tag: YOU IN COMMAND. Below: THIS WEEK · 1 BUG BY HAND, THEN COMPARE."

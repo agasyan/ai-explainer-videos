@@ -1,0 +1,314 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+  /* Labels sit in the top corners of .safe, clear of the plane in the middle. */
+  .tl { position: absolute; top: 0; left: 0; }
+  .tr { position: absolute; top: 0; right: 0; }
+  .place { font-size: 40px; }
+  .roll .cap { margin-right: 18px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas class="gl" id="gl" width="1920" height="1080"></canvas>
+  <div class="safe">
+    <div class="tag muted tl place">1914 · PARIS</div>
+    <div class="tag auto tr hands">HANDS OFF</div>
+    <div class="readout auto tl roll"><span class="cap">ROLL</span><span class="roll-val">0</span><span class="unit">°</span></div>
+    <div class="tag auto tr gyro">GYRO STABILIZER</div>
+  </div>
+</div>
+<script type="importmap">{"imports": {"three": "/vendor/three/build/three.module.js", "three/addons/": "/vendor/three/examples/jsm/"}}</script>
+<script type="module">
+import * as THREE from "three";
+import { LineSegments2 } from "three/addons/lines/LineSegments2.js";
+import { LineSegmentsGeometry } from "three/addons/lines/LineSegmentsGeometry.js";
+import { LineMaterial } from "three/addons/lines/LineMaterial.js";
+
+const { at } = EV;
+const W = 1920, H = 1080, deg = Math.PI / 180;
+
+// Concept colors from style.css: cyan for the automation (plane, gyro), white for the humans.
+const rootStyle = getComputedStyle(document.documentElement);
+const cssColor = (name, fallback) => {
+  const v = rootStyle.getPropertyValue(name).trim();
+  return new THREE.Color(v && !v.startsWith("var(") ? v : rootStyle.getPropertyValue(fallback).trim());
+};
+const AUTO = cssColor("--auto", "--accent");
+const HUMAN = cssColor("--human", "--ink");
+const LINE = cssColor("--line", "--line");
+const MID = cssColor("--bg", "--bg").lerp(cssColor("--panel", "--panel"), 0.5);
+
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("gl"), alpha: true, antialias: true,
+                                           preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+renderer.setSize(W, H, false);
+renderer.setClearColor(0x000000, 0);
+const scene = new THREE.Scene();
+const camera = new THREE.PerspectiveCamera(30, W / H, 0.1, 200);
+camera.setViewOffset(W, H, 0, 50, W, H);  // lift the picture a little: captions sit at the bottom
+
+// ---------- line helpers ----------
+function lineMat(color, width, opacity, vertexColors = false) {
+  const m = new LineMaterial({ color, linewidth: width, transparent: true, opacity, depthTest: false,
+                               depthWrite: false, vertexColors });
+  m.resolution.set(W, H);
+  return m;
+}
+// A wire object: a crisp core line plus a wide, faint halo for the glow.
+function wire(parent, segs, color, width, { opacity = 1, glow = 0.14, layer = 1 } = {}) {
+  const g = new LineSegmentsGeometry();
+  g.setPositions(segs);
+  const mats = [];
+  const add = (m, base, order) => {
+    const o = new LineSegments2(g, m);
+    o.renderOrder = order;
+    o.frustumCulled = false;
+    parent.add(o);
+    mats.push([m, base]);
+  };
+  if (glow) add(lineMat(color, width * 3.2, glow * opacity), glow * opacity, layer * 2);
+  add(lineMat(color, width, opacity), opacity, layer * 2 + 1);
+  return {
+    fade(k) { mats.forEach(([m, base]) => { m.opacity = base * k; m.visible = k > 0.001; }); },
+    update(arr) { const d = g.attributes.instanceStart.data; d.array.set(arr); d.needsUpdate = true; },
+  };
+}
+const seg = (out, a, b) => out.push(a[0], a[1], a[2], b[0], b[1], b[2]);
+function loop(out, pts, closed = true) {
+  for (let i = 0; i < pts.length - 1; i++) seg(out, pts[i], pts[i + 1]);
+  if (closed) seg(out, pts[pts.length - 1], pts[0]);
+}
+function ring(out, c, r, axis, n = 28) {
+  const pts = [];
+  for (let i = 0; i < n; i++) {
+    const a = (i / n) * Math.PI * 2, u = Math.cos(a) * r, v = Math.sin(a) * r;
+    pts.push(axis === "x" ? [c[0], c[1] + u, c[2] + v] : axis === "y" ? [c[0] + u, c[1], c[2] + v] : [c[0] + u, c[1] + v, c[2]]);
+  }
+  loop(out, pts);
+}
+const lerp3 = (a, b, k) => a.map((v, i) => v + (b[i] - v) * k);
+
+// ---------- the biplane: x is the span, y is up, the nose points to +z ----------
+const plane = new THREE.Group();
+scene.add(plane);
+const frame = [], rig = [];
+
+// Fuselage: bulkheads [z, half width, top, bottom] joined by 4 longerons, a truss on the rear sides.
+const st = [[2.1, 0.42, 0.40, -0.45], [1.2, 0.45, 0.45, -0.5], [-1.0, 0.42, 0.45, -0.45], [-3.0, 0.26, 0.32, -0.2],
+            [-5.25, 0.06, 0.16, 0.02]];
+const box = ([z, w, top, bot]) => [[-w, top, z], [w, top, z], [w, bot, z], [-w, bot, z]];
+st.forEach((s, i) => {
+  loop(frame, box(s));
+  if (i) { const a = box(st[i - 1]), b = box(s); for (let k = 0; k < 4; k++) seg(frame, a[k], b[k]); }
+});
+for (const i of [2, 3]) { const a = box(st[i]), b = box(st[i + 1]); seg(rig, a[1], b[2]); seg(rig, a[0], b[3]); }
+const cowl = box([2.36, 0.18, 0.15, -0.21]);
+loop(frame, cowl);
+box(st[0]).forEach((p, k) => seg(frame, p, cowl[k]));
+ring(frame, [0, 0.43, -1.45], 0.3, "y", 20);  // cockpit
+
+// Upper wing, in one piece, with ribs.
+const UY = 1.25, ULE = 1.15, UTE = -0.3, USPAN = 5.2;
+loop(frame, [[-USPAN, UY, ULE], [USPAN, UY, ULE], [USPAN, UY, UTE], [-USPAN, UY, UTE]]);
+for (let i = -6; i <= 6; i++) seg(frame, [i * 0.8, UY, ULE], [i * 0.8, UY, UTE]);
+
+// Lower wing, in two halves at the fuselage sides.
+const LY = -0.45, LLE = 0.9, LTE = -0.5, LSPAN = 4.6, ROOT = 0.45;
+for (const s of [-1, 1]) {
+  loop(frame, [[s * ROOT, LY, LLE], [s * LSPAN, LY, LLE], [s * LSPAN, LY, LTE], [s * ROOT, LY, LTE]]);
+  for (let i = 1; i <= 5; i++) { const x = s * (ROOT + i * 0.7); seg(frame, [x, LY, LLE], [x, LY, LTE]); }
+  const x = s * 3.3;
+  seg(frame, [x, LY, 0.62], [x, UY, 0.88]);               // interplane struts
+  seg(frame, [x, LY, -0.28], [x, UY, -0.05]);
+  seg(frame, [s * 0.42, 0.45, 0.85], [s * 0.5, UY, 0.95]);  // cabane struts
+  seg(frame, [s * 0.42, 0.45, -0.15], [s * 0.5, UY, -0.05]);
+  seg(rig, [x, UY, 0.45], [s * 0.45, LY, 0.3]);             // bracing wires
+  seg(rig, [x, LY, 0.2], [s * 0.5, UY, 0.45]);
+}
+
+// Tail: stabilizer with elevator line, fin, skid.
+const TY = 0.12;
+loop(frame, [[-1.9, TY, -4.75], [-1.45, TY, -4.35], [1.45, TY, -4.35], [1.9, TY, -4.75], [1.9, TY, -5.35], [-1.9, TY, -5.35]]);
+seg(frame, [-1.9, TY, -4.98], [1.9, TY, -4.98]);
+loop(frame, [[0, 0.16, -4.45], [0, 1.05, -4.98], [0, 1.05, -5.32], [0, 0.1, -5.38]]);
+seg(rig, [0, 0.02, -4.9], [0, -0.32, -5.15]);
+
+// Landing gear: V struts, axle, two wheels.
+for (const s of [-1, 1]) {
+  seg(frame, [s * 0.42, -0.49, 1.45], [s * 0.78, -1.3, 0.95]);
+  seg(frame, [s * 0.42, -0.48, 0.25], [s * 0.78, -1.3, 0.95]);
+  ring(frame, [s * 0.9, -1.3, 0.95], 0.34, "x", 24);
+}
+seg(frame, [-0.9, -1.3, 0.95], [0.9, -1.3, 0.95]);
+
+wire(plane, frame, AUTO, 3);
+wire(plane, rig, AUTO, 1.8, { opacity: 0.5, glow: 0 });
+
+// Propeller: two blades that spin, and a faint disc.
+const prop = new THREE.Group();
+prop.position.set(0, -0.03, 2.42);
+plane.add(prop);
+const blades = [];
+for (const s of [-1, 1]) loop(blades, [[0, 0.08 * s, 0], [0.11, 0.38 * s, 0], [0.07, 1.05 * s, 0], [-0.07, 1.05 * s, 0], [-0.11, 0.38 * s, 0]]);
+ring(blades, [0, 0, 0], 0.1, "z", 12);
+wire(prop, blades, AUTO, 3);
+const disc = [];
+ring(disc, [0, -0.03, 2.42], 1.05, "z", 40);
+wire(plane, disc, AUTO, 1.6, { opacity: 0.3, glow: 0 });
+
+// ---------- the humans, in white ----------
+// The pilot sits in the cockpit; his arms go from the controls up into the air.
+const PZ = -1.45, pilotBody = [];
+seg(pilotBody, [0, 0.36, PZ], [0, 0.76, PZ]);
+seg(pilotBody, [-0.2, 0.72, PZ], [0.2, 0.72, PZ]);
+ring(pilotBody, [0, 0.93, PZ], 0.14, "z", 16);
+ring(pilotBody, [0, 0.93, PZ], 0.14, "x", 16);
+wire(plane, pilotBody, HUMAN, 3, { glow: 0.18, layer: 3 });
+const elbowDown = [0.27, 0.52, PZ + 0.2], handDown = [0.1, 0.5, PZ + 0.45];
+const elbowUp = [0.34, 1.0, PZ], handUp = [0.42, 1.34, PZ + 0.03];
+function armSegs(k) {
+  const out = [], e = lerp3(elbowDown, elbowUp, k), h = lerp3(handDown, handUp, k);
+  for (const s of [-1, 1]) {
+    seg(out, [0.2 * s, 0.72, PZ], [e[0] * s, e[1], e[2]]);
+    seg(out, [e[0] * s, e[1], e[2]], [h[0] * s, h[1], h[2]]);
+  }
+  return out;
+}
+const pilotArms = wire(plane, armSegs(0), HUMAN, 3, { glow: 0.18, layer: 3 });
+
+// The mechanic stands on the lower wing and walks out toward the tip.
+const MZ = 0.2;
+const mech = new THREE.Group();
+plane.add(mech);
+const mechBody = [];
+seg(mechBody, [0, 0.55, 0], [0, 0.98, 0]);
+ring(mechBody, [0, 1.13, 0], 0.13, "z", 16);
+ring(mechBody, [0, 1.13, 0], 0.13, "x", 16);
+seg(mechBody, [0, 0.9, 0], [0.05, 0.6, 0.3]);
+seg(mechBody, [0, 0.9, 0], [0.05, 0.6, -0.3]);
+const mechWire = wire(mech, mechBody, HUMAN, 3, { glow: 0.18, layer: 3 });
+function legSegs(p) {
+  const out = [], swing = Math.sin(p * 7 * Math.PI) * 0.18;
+  seg(out, [0, 0.55, 0], [swing, 0, 0.09]);
+  seg(out, [0, 0.55, 0], [-swing, 0, -0.09]);
+  return out;
+}
+const mechLegs = wire(mech, legSegs(0), HUMAN, 3, { glow: 0.18, layer: 3 });
+
+// ---------- the gyro: it stays level in space while the plane rolls ----------
+const gyro = new THREE.Group();
+gyro.position.set(0, -0.02, 0.3);
+plane.add(gyro);
+const gimbal = [];
+ring(gimbal, [0, 0, 0], 0.36, "y", 28);
+ring(gimbal, [0, 0, 0], 0.3, "x", 28);
+const gyroWire = wire(gyro, gimbal, AUTO, 3.4, { glow: 0.3, layer: 4 });
+const rotor = new THREE.Group();
+gyro.add(rotor);
+const rotorSegs = [];
+ring(rotorSegs, [0, 0, 0], 0.22, "z", 20);
+seg(rotorSegs, [-0.22, 0, 0], [0.22, 0, 0]);
+seg(rotorSegs, [0, -0.22, 0], [0, 0.22, 0]);
+const rotorWire = wire(rotor, rotorSegs, AUTO, 3.4, { glow: 0.3, layer: 4 });
+
+// ---------- the ground: a dim grid that scrolls back, fading with distance ----------
+const G = { sp: 2.5, ext: 35, y: -4.6, v: 3.2 };
+const N = Math.round((2 * G.ext) / G.sp);
+const gridGeo = new LineSegmentsGeometry();
+gridGeo.setPositions(new Float32Array(2 * N * N * 6));
+gridGeo.setColors(new Float32Array(2 * N * N * 6));
+const grid = new LineSegments2(gridGeo, lineMat(0xffffff, 1.6, 1, true));
+grid.frustumCulled = false;
+grid.renderOrder = 0;
+scene.add(grid);
+const tmp = new THREE.Color();
+function shade(x, z) {
+  const f = Math.max(0, Math.min(1, (30 - Math.hypot(x, z + 1.3)) / 20)) ** 1.3;
+  return tmp.copy(MID).lerp(LINE, f);
+}
+function paintGrid(t) {
+  const pos = gridGeo.attributes.instanceStart.data.array;
+  const col = gridGeo.attributes.instanceColorStart.data.array;
+  let k = 0;
+  const put = (x1, z1, x2, z2) => {
+    pos.set([x1, G.y, z1, x2, G.y, z2], k * 6);
+    const a = shade(x1, z1), ar = a.r, ag = a.g, ab = a.b, b = shade(x2, z2);
+    col.set([ar, ag, ab, b.r, b.g, b.b], k * 6);
+    k++;
+  };
+  const shift = (t * G.v) % G.sp;
+  for (let i = 0; i < N; i++) {
+    const x = -G.ext + (i + 0.5) * G.sp;  // lines along the flight path
+    for (let j = 0; j < N; j++) put(x, -G.ext + j * G.sp, x, -G.ext + (j + 1) * G.sp);
+  }
+  for (let i = 0; i < N; i++) {
+    const z = -G.ext + (i + 1) * G.sp - shift;  // cross lines, moving back as the plane flies on
+    for (let j = 0; j < N; j++) put(-G.ext + j * G.sp, z, -G.ext + (j + 1) * G.sp, z);
+  }
+  gridGeo.attributes.instanceStart.data.needsUpdate = true;
+  gridGeo.attributes.instanceColorStart.data.needsUpdate = true;
+}
+
+// ---------- camera: a slow orbit from a three-quarter view toward the nose ----------
+const target = new THREE.Vector3(-0.32, -0.05, -1.08);
+const T = EV.data.duration || 12.5;
+function placeCamera(t) {
+  const p = Math.min(1, t / T), az = (62 - 30 * p) * deg, el = (17 - 5 * p) * deg, R = 16.5;
+  camera.position.set(target.x + R * Math.sin(az) * Math.cos(el), target.y + R * Math.sin(el),
+                      target.z + R * Math.cos(az) * Math.cos(el));
+  camera.lookAt(target);
+}
+
+// ---------- timeline ----------
+const s = { arms: 0, mech: 0, mechOp: 0, roll: 0, gyro: 0 };
+const ROLL = 6;  // degrees: a small roll, then the gyro brings the wings back level
+
+// Beat "hands": the year and place, then HANDS OFF as the pilot lifts his arms.
+EV.from(".place", { opacity: 0, y: -12 }, at("hands", "nineteen"));
+EV.to(s, { arms: 1, duration: 0.7, ease: "power2.inOut" }, at("hands", "hands") - 0.15);
+EV.from(".hands", { opacity: 0, y: -12 }, at("hands", "hands"));
+
+// Beat "wing": the mechanic walks out, the plane rolls a little, the gyro levels it.
+const walkAt = at("wing", "walks"), outAt = at("wing", "out"), wingAt = at("wing", "wing");
+const gyroAt = at("wing", "gyro"), levelAt = at("wing", "level");
+EV.to(".place", { opacity: 0, duration: 0.3 }, at("wing"));
+EV.to(s, { mechOp: 1, duration: 0.4 }, at("wing", "mechanic"));
+EV.from(".roll", { opacity: 0, y: -12 }, walkAt);
+EV.to(s, { mech: 1, duration: wingAt - walkAt + 0.15, ease: "sine.inOut" }, walkAt);
+const rollFmt = v => String(Math.round(v));
+EV.to(s, { roll: -ROLL, duration: gyroAt - outAt - 0.05, ease: "sine.inOut" }, outAt);
+EV.count(".roll-val", 0, ROLL, outAt, gyroAt - outAt - 0.05, rollFmt, "sine.inOut");
+EV.to(".hands", { opacity: 0, duration: 0.3 }, gyroAt - 0.35);
+EV.from(".gyro", { opacity: 0, y: -12 }, gyroAt);
+EV.to(s, { gyro: 1, duration: 0.4 }, gyroAt);
+const back = levelAt + 0.3 - gyroAt;
+EV.to(s, { roll: 0, duration: back, ease: "power2.inOut" }, gyroAt);
+EV.count(".roll-val", ROLL, 0, gyroAt, back, rollFmt, "power2.inOut");
+
+EV.onFrame(t => {
+  placeCamera(t);
+  paintGrid(t);
+  plane.rotation.z = s.roll * deg;
+  gyro.rotation.z = -s.roll * deg;  // the gyro holds its attitude in space
+  prop.rotation.z = t * 11;
+  rotor.rotation.z = t * 7;
+  pilotArms.update(armSegs(s.arms));
+  mech.position.set(0.75 + 3.1 * s.mech, LY, MZ);
+  mechLegs.update(legSegs(s.mech));
+  mechWire.fade(s.mechOp);
+  mechLegs.fade(s.mechOp);
+  gyroWire.fade(s.gyro);
+  rotorWire.fade(s.gyro);
+  renderer.render(scene, camera);
+});
+EV.ready();
+</script>
+</body>
+</html>
