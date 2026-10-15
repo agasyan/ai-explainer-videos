@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="big-number accent turn">Your turn</div>
+  </div>
+</div>
+<script>
+const { at } = EV;
+EV.from(".turn", { scale: 0.4, opacity: 0, duration: 0.7, ease: "back.out(2)" }, at("recap", "your"));
+EV.ready();
+</script>
+</body>
+</html>

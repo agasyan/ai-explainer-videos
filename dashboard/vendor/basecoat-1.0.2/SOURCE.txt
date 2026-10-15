@@ -1,0 +1,5 @@
+Basecoat 1.0.2 (MIT): shadcn/ui components for plain HTML, from the npm tarball
+https://registry.npmjs.org/basecoat-css/-/basecoat-css-1.0.2.tgz
+npm integrity: sha512-C6I5rr7HziIAoBYNGPO5U6HaU/6FuF3iVp++IgoEqqJ836is3XoRty6l1ibXqxnoIRZNnOAYDMX8QxVC+58zhw==
+Copied unchanged: dist/basecoat.cdn.min.css (as basecoat.min.css), LICENSE.md. No JS yet: no page component needs it.
+The dashboard serves these files itself: no CDN.

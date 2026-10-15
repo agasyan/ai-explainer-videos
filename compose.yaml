@@ -1,0 +1,18 @@
+services:
+  ev:
+    build: .
+    image: ai-explainer-videos
+    user: "${HOST_UID:-1000}:${HOST_GID:-1000}"   # files in generated_videos/ belong to you, not root
+    shm_size: "1gb"                                # Chromium needs more shared memory than Docker's 64 MB default
+    network_mode: none                             # no network: a scene page cannot send content anywhere, by any
+                                                   # route (fetch, WebSocket, WebRTC, DNS), in either engine
+    volumes:
+      - .:/work:ro                                 # the tool is read-only inside the container,
+      - ./generated_videos:/work/generated_videos  # so code that runs here can change only generated_videos/
+    environment:
+      EV_USER: ${USER:-unknown}                    # recorded in approved.json
+      EV_HF_WORKERS: ${EV_HF_WORKERS:-}            # hyperframes engine: Chrome workers (empty = auto)
+  ev-online:                                       # make transcribe only: it may download a whisper model once
+    extends:
+      service: ev
+    network_mode: bridge

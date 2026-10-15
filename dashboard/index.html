@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="ev-token" content="__TOKEN__">
+<title>Explainer Videos</title>
+<link rel="stylesheet" href="/vendor/basecoat-1.0.2/basecoat.min.css">
+<link rel="stylesheet" href="/app.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<header class="topbar">
+  <strong>Explainer videos</strong>
+  <span class="muted" id="system-line">Checking Docker</span>
+</header>
+<div class="alert banner" id="stale" data-variant="destructive" hidden><section id="stale-text">The dashboard's code changed after it started.
+  Stop it (Ctrl+C in its terminal) and run make dashboard again, then reload this page.</section></div>
+<main class="layout">
+  <div class="stack">
+    <section class="card">
+      <header><h2 class="card-title">New video</h2><p class="card-description">A topic, PR, repo path, or file. Start as many as you like: each gets its own card.</p></header>
+      <section>
+        <form id="new" class="stack">
+          <div class="field">
+            <label for="source">Source</label>
+            <textarea id="source" class="textarea" rows="3" required placeholder="PR #482&#10;how DNS works&#10;../checkout-service"></textarea>
+          </div>
+          <div class="field">
+            <label for="slug">Slug: the video's folder in generated_videos/</label>
+            <input id="slug" class="input" required maxlength="60" pattern="[a-z0-9][a-z0-9-]*" placeholder="how-dns-works">
+          </div>
+          <div class="pair">
+            <div class="field"><label for="vformat">Video format</label>
+              <select id="vformat" class="select"><option value="recommend">Recommend for me</option></select></div>
+            <div class="field"><label for="mood">Moodboard</label>
+              <select id="mood" class="select"><option value="recommend">Recommend for me</option></select></div>
+          </div>
+          <p class="muted" id="pick-note">Claude recommends one of each, with 2 alternatives, in the storyboard.</p>
+          <img id="mood-swatch" class="swatch" alt="" hidden>
+          <div class="pair">
+            <div class="field"><label for="format">Aspect</label>
+              <select id="format" class="select"><option value="landscape">Landscape 16:9</option><option value="story">Story 9:16</option><option value="both">Both</option></select></div>
+            <div class="field"><label for="length">Length per part</label>
+              <select id="length" class="select"><option>30s</option><option selected>60s</option><option>2m</option><option>3m</option></select></div>
+          </div>
+          <div class="field"><label for="voice">Voice</label>
+            <select id="voice" class="select"><option value="af_heart">US, female</option><option value="am_michael">US, male</option><option value="bf_emma">UK, female</option><option value="bm_george">UK, male</option></select></div>
+          <label class="check"><input type="checkbox" id="three" class="input" checked>
+            <span>Allow 3D where it explains better (three.js). Claude uses it for 2 scenes per part at most.</span></label>
+          <div class="field">
+            <label for="dir">Extra folder Claude may read (optional)</label>
+            <input id="dir" class="input" placeholder="~/code/checkout-service">
+          </div>
+          <label class="check"><input type="checkbox" id="auto" class="input">
+            <span>Run until the 720p preview without stopping. You check the plan with the preview.</span></label>
+          <button class="btn" id="start">Start</button>
+          <p class="muted" id="start-reason" hidden></p>
+        </form>
+      </section>
+    </section>
+    <section class="card">
+      <header><h2 class="card-title">Samples</h2><p class="card-description">Finished examples: start a copy and change it</p></header>
+      <section><div class="list" id="samples"><div class="empty">Loading samples</div></div></section>
+    </section>
+    <section class="card" id="system">
+      <header><h2 class="card-title">System</h2><p class="card-description" id="system-status">Checking Docker</p></header>
+      <section class="stack">
+        <dl class="sysrows" id="system-rows"></dl>
+        <div class="buttons" id="system-buttons"></div>
+        <p class="muted" id="system-job" hidden></p>
+      </section>
+    </section>
+  </div>
+  <div class="stack">
+    <section class="card">
+      <header><h2 class="card-title">Videos</h2><p class="card-description">Each video, its 3 steps, and what happens now. Select one to check it.</p></header>
+      <section><div class="board" id="videos"><div class="empty">Loading videos</div></div></section>
+    </section>
+    <section class="card" id="detail" hidden>
+      <header><h2 class="card-title" id="d-title"></h2><p class="card-description" id="d-slug"></p></header>
+      <section class="stack">
+        <ol class="stepper" id="d-steps"></ol>
+        <div class="now" id="d-now"></div>
+        <div class="buttons" id="d-actions"></div>
+        <div class="tabbar" role="tablist">
+          <button type="button" role="tab" id="tab-check" aria-selected="true">Check</button>
+          <button type="button" role="tab" id="tab-activity" aria-selected="false">Activity</button>
+        </div>
+        <div id="pane-check" class="stack" role="tabpanel">
+          <div class="decide stack" id="decide">
+            <div id="check-question" hidden><strong id="check-text"></strong></div>
+            <div class="buttons"><button type="button" class="btn" id="approve" hidden></button>
+              <span class="muted" id="approve-note" hidden></span></div>
+            <form id="reply" class="stack">
+              <div class="field">
+                <label for="text">Or request changes: Claude applies them and asks you again</label>
+                <textarea id="text" class="textarea" rows="2" placeholder="Beat 3 is wrong: the retry is in the gateway, not the app."></textarea>
+              </div>
+              <div><button class="btn" data-variant="outline">Send the change to Claude</button></div>
+            </form>
+          </div>
+          <div id="check-body" class="stack"></div>
+        </div>
+        <div id="pane-activity" class="stack" role="tabpanel" hidden>
+          <div class="runs" id="runs"></div>
+          <p class="muted session" id="session" hidden></p>
+          <div class="agents" id="agents"></div>
+          <div class="logbar"><span class="muted" id="log-filter-label">All agents</span>
+            <button type="button" class="btn" data-variant="ghost" id="log-all" hidden>Show all agents</button></div>
+          <div id="log"></div>
+        </div>
+      </section>
+    </section>
+  </div>
+</main>
+</body>
+</html>

@@ -1,0 +1,43 @@
+title: __TITLE__
+brief:                    # step 1: replace every (fill in)
+  viewer: (fill in) who watches, and what they know already
+  takeaway: (fill in) one sentence the viewer remembers
+  points:
+    - (fill in) 3 to 5 points, in order
+  example: (fill in) one concrete example
+  sources:
+    - (fill in) what you read: PR, files, links
+  guesses: []             # facts you could not check
+format: landscape         # landscape | story | both
+moodboard: recommend      # the look: step 1 picks one from moodboards/
+video_format: recommend   # the structure: step 1 picks one from video-formats/
+picks:                    # step 1, the recommender: 3 each, the pick first, then 2 alternatives, each with a why
+  video_format: []        #   - {name: history-lesson, why: one line tied to this topic}
+  moodboard: []           #   - {name: instrument, why: one line tied to this topic}
+three: true               # allow 3D (three.js) where it explains better than 2D; each 3D scene needs three_why
+voice: af_heart           # Kokoro, local: af_heart, af_bella, am_michael, am_fenrir (US); bf_emma, bm_george (UK)
+speed: 1.0                # 0.9 is slower, 1.1 is faster
+gap: 0.35                 # seconds of silence after each beat
+captions: pop             # pop (words appear as said), line (whole line, words light up), or off
+engine: playwright        # playwright, or hyperframes (parallel, faster, plays <video> clips; docs/scenes.md)
+
+# One part. For a series, replace `scenes:` with `parts:` (docs/writing.md, "Long topics").
+# Each beat: `say` is the narration, `show` is the storyboard (what is on screen).
+# *Asterisks* in `say` mark key words: the voice ignores them, and the captions color them.
+scenes:
+  - id: hook              # page: scenes/hook.html
+    treatment: title      # one of the moodboard's treatments (its moodboard.md)
+    beats:
+      - id: hook
+        say: In one minute, you will know *how this works*.
+        show: The title fades in. A curved line draws across the screen.
+      - id: plan
+        say: First the problem. Then the idea. Then one example.
+        show: Three cards appear one by one as each word is said, Problem, Idea, Example.
+        hold: 0.5         # optional: extra seconds of picture after the voice
+  - id: recap
+    treatment: title
+    beats:
+      - id: recap
+        say: That is the whole idea. Next, try it on your own topic.
+        show: The words Your turn grow in the center.

@@ -1,0 +1,15 @@
+# Local videos stay on your machine: their content can be confidential.
+generated_videos/*
+!generated_videos/.gitkeep
+# The old home of local videos: still ignored, so an unmoved video never reaches a commit.
+videos/*
+!videos/.gitkeep
+# Samples are committed: their sources only.
+!videos/samples/
+videos/samples/*/build/
+videos/samples/*/out/
+videos/samples/**/approved.json
+.models/
+__pycache__/
+.DS_Store
+.env

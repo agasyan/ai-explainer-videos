@@ -1,0 +1,51 @@
+{
+  "permissions": {
+    "defaultMode": "default",
+    "allow": [
+      "Bash(make help)",
+      "Bash(make doctor)",
+      "Bash(make new:*)",
+      "Bash(make narrate:*)",
+      "Bash(make storyboard:*)",
+      "Bash(make status:*)",
+      "Bash(make preview:*)",
+      "Bash(make video:*)",
+      "Bash(make reference:*)",
+      "Bash(make transcribe:*)",
+      "Bash(gh pr view:*)",
+      "Bash(gh pr diff:*)",
+      "WebSearch",
+      "WebFetch"
+    ],
+    "ask": [
+      "Bash(make approve:*)",
+      "Bash(make *approve*)",
+      "Bash(make auto:*)",
+      "Bash(make * auto)",
+      "Bash(make * auto *)",
+      "Edit(**/Makefile)",
+      "Edit(**/makefile)",
+      "Edit(**/GNUmakefile)",
+      "Edit(**/*.mk)",
+      "Edit(**/Dockerfile)",
+      "Edit(**/compose.*)",
+      "Edit(**/docker-compose*)",
+      "Edit(**/.env)",
+      "Edit(**/ev/**)",
+      "Edit(**/dashboard/**)",
+      "Edit(**/templates/**)",
+      "Edit(**/AGENTS.md)",
+      "Edit(**/CLAUDE.md)",
+      "Edit(**/tests/**)",
+      "Edit(**/videos/samples/**)",
+      "Edit(**/moodboards/**)",
+      "Edit(**/video-formats/**)"
+    ],
+    "deny": [
+      "Edit(**/videos/*/approved.json)",
+      "Edit(**/generated_videos/*/approved.json)",
+      "Bash(make * -*)",
+      "Bash(make -*)"
+    ]
+  }
+}

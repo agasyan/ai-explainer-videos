@@ -1,0 +1,108 @@
+[
+ {
+  "name": "compare",
+  "description": "A choice told as the choice, the criteria, each option against the criteria, and the verdict with when the other option wins, for tool and design decisions.",
+  "fits": [
+   "choices",
+   "tools",
+   "tradeoffs",
+   "decisions"
+  ],
+  "ending": "The viewer can make the choice with the criteria, and the next action is to score their own case on the same table.",
+  "acts": [
+   "choice",
+   "criteria",
+   "options",
+   "verdict"
+  ]
+ },
+ {
+  "name": "history-lesson",
+  "description": "A history told as then, turning points, what went wrong, the fix, and what it means now, for topics with a lesson for today.",
+  "fits": [
+   "history",
+   "lessons",
+   "origins",
+   "technology"
+  ],
+  "ending": "The viewer takes one lesson from the past, and the next action is to look for the same risk in their own work.",
+  "acts": [
+   "then",
+   "turning-points",
+   "what-went-wrong",
+   "the-fix",
+   "now"
+  ]
+ },
+ {
+  "name": "how-it-works",
+  "description": "A mechanism told as the question, the parts, one flow through the parts, and the limits, for technology and science topics.",
+  "fits": [
+   "technology",
+   "science",
+   "protocols",
+   "machines"
+  ],
+  "ending": "The viewer can trace the flow without help, and the next action is to see the same flow in a real tool or log.",
+  "acts": [
+   "question",
+   "parts",
+   "flow",
+   "limits"
+  ]
+ },
+ {
+  "name": "incident-review",
+  "description": "An incident told as what happened, the timeline, the cause, what changed, and the lesson, for blameless reviews of outages.",
+  "fits": [
+   "incidents",
+   "outages",
+   "postmortems",
+   "reliability"
+  ],
+  "ending": "The viewer knows the cause and the change that stops a repeat, and the next action is to check their own system for the same weak point.",
+  "acts": [
+   "what-happened",
+   "timeline",
+   "cause",
+   "what-changed",
+   "lesson"
+  ]
+ },
+ {
+  "name": "problem-fix",
+  "description": "A PR told as problem, change, effect, and risk, for code reviews and release notes.",
+  "fits": [
+   "pr",
+   "bugfix",
+   "feature",
+   "refactor",
+   "review"
+  ],
+  "ending": "The viewer knows what the PR fixes and what to watch, and the next action is to review the diff.",
+  "acts": [
+   "problem",
+   "change",
+   "effect",
+   "risk"
+  ]
+ },
+ {
+  "name": "system-tour",
+  "description": "A repo told as purpose, main parts, one request through it, and how to start, for onboarding to a codebase.",
+  "fits": [
+   "repo",
+   "codebase",
+   "service",
+   "architecture",
+   "onboarding"
+  ],
+  "ending": "The viewer knows where each main part lives, and the next action is to run the start command.",
+  "acts": [
+   "purpose",
+   "main-parts",
+   "one-request",
+   "how-to-start"
+  ]
+ }
+]

@@ -1,0 +1,139 @@
+[
+ {
+  "name": "archival",
+  "description": "Paper tones and serif captions over stills that pan and zoom slowly; for history and biography told through photos and documents.",
+  "fits": [
+   "history",
+   "biography",
+   "archives",
+   "documents"
+  ],
+  "three": false,
+  "colors": [
+   "#f1e9da",
+   "#2b2620",
+   "#7b4a2a",
+   "#4d6070"
+  ]
+ },
+ {
+  "name": "blueprint",
+  "description": "White line art on blueprint blue, with a grid and dimension lines, for machines, engineering drawings, and system internals.",
+  "fits": [
+   "machines",
+   "engineering",
+   "hardware",
+   "internals"
+  ],
+  "three": true,
+  "colors": [
+   "#1a4f8b",
+   "#ffffff",
+   "#d4ecff",
+   "#ffd166"
+  ]
+ },
+ {
+  "name": "clean",
+  "description": "Light paper, dark ink, and one blue accent in Inter; a calm, neutral look that suits most topics.",
+  "fits": [
+   "general",
+   "product",
+   "onboarding",
+   "data",
+   "process"
+  ],
+  "three": false,
+  "colors": [
+   "#f7f5f0",
+   "#1d1d1f",
+   "#2563eb",
+   "#f59e0b"
+  ]
+ },
+ {
+  "name": "editorial",
+  "description": "A quiet print page with serif text and thin rules; for history, policy, and essays told in words.",
+  "fits": [
+   "history",
+   "policy",
+   "essays"
+  ],
+  "three": false,
+  "colors": [
+   "#fffff8",
+   "#111111",
+   "#1f4e79",
+   "#8a5a00"
+  ]
+ },
+ {
+  "name": "flat-vector",
+  "description": "Bright solid shapes on a deep navy field; friendly and clear, for science and big-picture why questions.",
+  "fits": [
+   "science",
+   "space",
+   "biology",
+   "technology",
+   "why-questions"
+  ],
+  "three": true,
+  "colors": [
+   "#1b2a4a",
+   "#f7f9ff",
+   "#ffc93c",
+   "#3ec7e0"
+  ]
+ },
+ {
+  "name": "instrument",
+  "description": "A dark glass-cockpit screen with boxed readouts and strict alert colors, for aviation, operations, and incident timelines.",
+  "fits": [
+   "aviation",
+   "monitoring",
+   "operations",
+   "incidents"
+  ],
+  "three": true,
+  "colors": [
+   "#0b1016",
+   "#e6edf3",
+   "#2ec7f0",
+   "#ffb020"
+  ]
+ },
+ {
+  "name": "math-dark",
+  "description": "Bright lines that draw on a near-black stage; calm and exact, for math, algorithms, and proofs.",
+  "fits": [
+   "math",
+   "algorithms",
+   "geometry",
+   "physics"
+  ],
+  "three": true,
+  "colors": [
+   "#0f1115",
+   "#ffffff",
+   "#58c4dd",
+   "#f7d96f"
+  ]
+ },
+ {
+  "name": "whiteboard",
+  "description": "Off-white board, marker ink, Caveat hand font, and rough.js shapes; an informal look for ideas and processes.",
+  "fits": [
+   "concepts",
+   "teaching",
+   "process",
+   "brainstorm"
+  ],
+  "three": false,
+  "colors": [
+   "#fbfaf6",
+   "#22223b",
+   "#1d4ed8",
+   "#e85d04"
+  ]
+ }
+]
