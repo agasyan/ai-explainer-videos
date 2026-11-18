@@ -113,8 +113,11 @@ class CommandTest(unittest.TestCase):
                 done = subprocess.CompletedProcess([], 0, stdout=out, stderr="")
                 with mock.patch.object(server.subprocess, "run", return_value=done) as run:
                     self.assertEqual(want, server.suggest_name("how a cache works"))
-                argv = run.call_args.args[0]
-                self.assertEqual(["--allowedTools", ""], argv[argv.index("--allowedTools"):argv.index("--allowedTools") + 2])
+                argv, kw = run.call_args.args[0], run.call_args.kwargs
+                for flag in ("--tools", "--setting-sources"):  # no tools, and none of this repo's allow rules
+                    self.assertEqual("", argv[argv.index(flag) + 1])
+                self.assertIn("--strict-mcp-config", argv)
+                self.assertNotEqual(str(server.ROOT), kw["cwd"])
         finally:
             server.TOOLS["claude"] = saved
         self.assertEqual("how-a-cache-works", server.plain_name("How a cache works?"))
@@ -368,6 +371,29 @@ class PageTest(unittest.TestCase):
 
     def test_post_without_the_token_is_refused(self):
         self.assertEqual(403, self.get("/api/jobs", "POST", body="{}")[0])
+
+    def test_the_web_choice_survives_a_restart_and_fails_closed(self):
+        import tempfile
+        saved, jobs = server.VIDEOS, dict(server.JOBS)
+        server.JOBS.clear()
+        sid = "0b8f6a2e-1c3d-4e5f-8a9b-0c1d2e3f4a5b"
+        with tempfile.TemporaryDirectory() as tmp:
+            server.VIDEOS = Path(tmp) / "generated_videos"
+            for name, saved_file in (("off", {"session": sid, "web": False}), ("old", {"session": sid}), ("none", None)):
+                (server.VIDEOS / name / "build").mkdir(parents=True)
+                if saved_file:
+                    (server.VIDEOS / name / "build" / "dashboard.json").write_text(json.dumps(saved_file))
+            try:
+                server.JOBS["r"] = {"slug": "off", "system": False, "started": 1, "web": None}  # a run loaded from disk
+                self.assertFalse(server.web_research("off"))   # the saved choice, not a run with no record
+                self.assertTrue(server.web_research("old"))    # made before the choice existed: it had the web
+                self.assertFalse(server.web_research("none"))  # nothing recorded: off
+                server.JOBS["s"] = {"slug": "none", "system": False, "started": 2, "web": True}
+                self.assertTrue(server.web_research("none"))
+            finally:
+                server.VIDEOS = saved
+                server.JOBS.clear()
+                server.JOBS.update(jobs)
 
     def test_auto_name_asks_claude_and_falls_back_to_the_source(self):
         started = self.stub_jobs()
