@@ -467,7 +467,7 @@ $("new").onsubmit = async e => {
     `Format: ${$("format").value}. ` +
     (vf !== "recommend" && !page ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
     `3D: ${$("three").checked && !page ? "allowed (three: true)" : "off (three: false)"}. ` +
-    `Voice: ${$("voice").value}. Length per part: ${$("length").value}. Use defaults for anything else.`;
+    `Voice: ${$("voice").value}. One video, no parts. Use defaults for anything else.`;
   const r = await post("/api/jobs", { prompt, slug: newSlug, add_dir: $("dir").value.trim(), html: page,
     plan_check: $("plan-check").checked });
   if (r.error) return alert(r.error);

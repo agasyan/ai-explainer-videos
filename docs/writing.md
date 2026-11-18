@@ -62,7 +62,7 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 
 ## Long topics: multi-part videos
 
-Split when a part runs over the limit, or when the topic has more than one main idea. The plan names the parts, so you approve the split before any picture exists.
+A video is one part by default: a long source gets less said about each part of it, not a split. Split only when you ask for a length per part (`--length 60s` in Claude Code). Then each part stays under that length and the limits below, and the plan names the parts.
 
 | Format | One part, at most |
 |--------|-------------------|
