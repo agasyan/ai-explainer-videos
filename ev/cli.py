@@ -1,8 +1,10 @@
 """ev: the pipeline's command line. Runs inside Docker; use the Makefile.
 
-1 plan     script.yaml (brief + storyboard) and `narrate`   -> approve plan
-2 preview  scenes/*.html rendered at 720p with review frames -> approve preview
-3 final    the same files rendered at 1080p
+1 plan     script.yaml (brief + storyboard) and `narrate`     (a check here is optional)
+2 preview  scenes/*.html rendered at 720p with review frames   -> approve preview: the final video
+3 1080p    optional: the same files at 1080p, when verdict.json says it is worth it and you want it
+`make from-html` starts step 1 from an HTML page: vendor and sections draft the script and the scenes.
+A new video is a project, projects/<YYYYMMDD>-<name>/ (ev/projects.py); commands take its name or its id.
 """
 import argparse
 import html
@@ -14,8 +16,8 @@ import tempfile
 from importlib.metadata import version
 from pathlib import Path
 
-from ev import gates
-from ev.common import ID, MODELS, ROOT, SAMPLES, VENDOR, VIDEOS, WHISPER, ffmpeg, run, seconds
+from ev import gates, projects
+from ev.common import MODELS, ROOT, SAMPLES, VENDOR, WHISPER, ffmpeg, run, seconds
 from ev.samples import copy_sources
 
 
@@ -25,67 +27,71 @@ def legacy_videos():
                   if d.is_dir() and d.name != "samples" and (d / "script.yaml").exists())
 
 
+def video(slug):
+    """The folder of an existing video, from its name or its project id (ev/projects.py)."""
+    found = projects.find(slug)
+    if not found:
+        sys.exit(f"No video named {slug} in projects/ or generated_videos/. Start one: make new SLUG={slug} TITLE=...")
+    return found
+
+
 def new(slug, title, sample=None):
-    if not ID.fullmatch(slug):
-        sys.exit("SLUG must be lowercase letters, digits, and dashes, for example: how-dns-works")
-    folder = VIDEOS / slug
-    consent = None
-    if folder.exists():  # the dashboard makes the folder first when you tick auto: it holds only your consent
-        if sorted(p.name for p in folder.iterdir()) != ["approved.json"]:
-            sys.exit(f"generated_videos/{slug} already exists. Use another slug.")
-        consent = {k: v for k, v in gates.read(folder, "approved.json").items() if k == "auto"}  # nothing else
-        shutil.rmtree(folder)
+    """Start a project: projects/<today>-<slug>/ (or -2, -3 the same day), from the template or a sample.
+    The work of this video (research, source notes, script, scenes, renders) stays in that folder."""
+    if sample and (not projects.NAME.fullmatch(sample) or not (SAMPLES / sample / "script.yaml").is_file()):
+        sys.exit(f"No sample named {sample!r} in videos/samples/")
+    pid = projects.new_id(slug)
+    folder = projects.PROJECTS / pid
     if sample:
-        if not ID.fullmatch(sample) or not (SAMPLES / sample / "script.yaml").is_file():
-            sys.exit(f"No sample named {sample!r} in videos/samples/")
         copy_sources(SAMPLES / sample, folder)
-        if consent:
-            gates.write(folder, consent)
-        print(f"DONE generated_videos/{slug}/ from the sample {sample}. Next: make narrate SLUG={slug}")
+        print(f"DONE projects/{pid}/ from the sample {sample}. Use SLUG={pid} in each next command. "
+              f"Next: make narrate SLUG={pid}")
         return
     shutil.copytree(ROOT / "templates" / "video", folder)
     for path in folder.rglob("*"):
         if path.is_file():
             value = json.dumps(title) if path.suffix == ".yaml" else html.escape(title)
             path.write_text(path.read_text().replace("__TITLE__", value))
-    if consent:
-        gates.write(folder, consent)
-    print(f"DONE generated_videos/{slug}/: script.yaml, style.css, scenes/. Next: fill in script.yaml (step 1).")
+    (folder / "sources").mkdir()
+    print(f"DONE projects/{pid}/: script.yaml, style.css, scenes/, sources/. Use SLUG={pid} in each next command. "
+          f"Next: research and read the source into sources/ and research.md, then fill in script.yaml (step 1).")
+
+
+def verdict(video):
+    """build/verdict.json from the last full 720p render: is the optional 1080p render worth it?"""
+    v = gates.read(video, "build/verdict.json")
+    return v if isinstance(v.get("1080p"), str) else None
 
 
 def status(video):
     st, approvals = gates.status(video), gates.read(video, "approved.json")
-    notes = {"ready": "READY for your check", "changed": "CHANGED after approval: check again", "waiting": "waiting"}
-    if st["plan"] == "auto":
-        a = approvals["auto"]
-        notes["auto"] = f"AUTO: you check it with the preview (consent {a['at']} by {a['by']})"
+    notes = {"plan": {"ready": "ready: the preview check covers it (an early check is optional)",
+                      "changed": "CHANGED after approval: the preview check covers it", "waiting": "waiting"},
+             "preview": {"ready": "READY for your check: this 720p video is the final",
+                         "changed": "CHANGED after approval: check again", "waiting": "waiting"}}
     for i, step in enumerate(gates.STEPS, 1):
         a = approvals.get(step, {})
         with_preview = " with the preview" if a.get("with") == "preview" else ""
         print(f"{i} {step:<8} " + (f"approved{with_preview} {a['at']} by {a['by']}" if st[step] == "approved"
-                                   else notes[st[step]]))
-    print("3 final    " + ("unlocked: make video SLUG=" + video.name if st["preview"] == "approved"
-                           else "locked until the preview is approved"))
-    todo = next((s for s in gates.STEPS if st[s] not in ("approved", "auto")), None)
-    if todo and gates.ready(video, todo):
-        print(f"next: check the {todo}. {gates.CHECK[todo]}\n      make approve SLUG={video.name} STEP={todo}")
-    elif todo == "plan":
+                                   else notes[step][st[step]]))
+    v = verdict(video)
+    hd = f" Verdict: {v['1080p']}. {v['why']}" if v else ""
+    print("3 1080p    " + (f"optional: make video SLUG={video.name}.{hd}" if st["preview"] == "approved"
+                           else "optional, after the preview check"))
+    if st["preview"] in ("ready", "changed"):
+        print(f"next: check the preview. {gates.CHECK['preview']}\n      make approve SLUG={video.name} STEP=preview")
+    elif st["preview"] == "approved":
+        print(f"next: share the 720p video, or ask for 1080p.{hd}")
+    elif st["plan"] in ("waiting", "changed") and not gates.ready(video, "plan"):
         print(f"next: fill in script.yaml, then make narrate SLUG={video.name}")
-    elif todo == "preview":
-        print(f"next: write scenes/, then make preview SLUG={video.name}")
+    else:
+        print(f"next: write scenes/, check them with make stills SLUG={video.name} SCENE=<id>, "
+              f"then make preview SLUG={video.name}")
 
 
 def approve(video, step):
     a = gates.approve(video, step)
     print(f"APPROVED {step} for {video.name}: {a['hash']}, {a['at']}, {a['by']}")
-
-
-def auto(video):
-    if not (video / "script.yaml").is_file():
-        sys.exit(f"No video at {video}: run make new first")
-    a = gates.consent(video)
-    print(f"AUTO until the preview for {video.name}: {a['at']}, {a['by']}. The plan stop is skipped; "
-          f"you check the plan and the 720p preview together.")
 
 
 def storyboard_command(video):
@@ -219,21 +225,29 @@ def doctor():
 def main():
     ap = argparse.ArgumentParser(prog="ev")
     sub = ap.add_subparsers(dest="cmd", required=True)
-    p = sub.add_parser("new", help="start generated_videos/<slug> from templates/video or a sample")
+    p = sub.add_parser("new", help="start projects/<YYYYMMDD>-<slug> from templates/video or a sample")
     p.add_argument("slug")
     p.add_argument("--title", default="")
     p.add_argument("--sample", help="a folder name in videos/samples/")
-    for name in ("narrate", "status", "auto", "storyboard"):
-        sub.add_parser(name).add_argument("video", type=Path)
+    for name in ("narrate", "status", "storyboard", "vendor"):
+        sub.add_parser(name).add_argument("video", type=video)
     p = sub.add_parser("approve")
-    p.add_argument("video", type=Path)
+    p.add_argument("video", type=video)
     p.add_argument("step", choices=gates.STEPS)
     p = sub.add_parser("render")
-    p.add_argument("video", type=Path)
+    p.add_argument("video", type=video)
     p.add_argument("--quality", required=True, choices=["720p", "1080p"])
     p.add_argument("--format", choices=["landscape", "story", "both"])
     p.add_argument("--part", type=int)
     p.add_argument("--scene")
+    p = sub.add_parser("stills", help="only the frame before each next beat, linted, with a contact sheet")
+    p.add_argument("video", type=video)
+    p.add_argument("--format", choices=["landscape", "story", "both"])
+    p.add_argument("--part", type=int)
+    p.add_argument("--scene")
+    p = sub.add_parser("sections", help="make from-html: capture the page's sections and draft the video")
+    p.add_argument("video", type=video)
+    p.add_argument("--format", choices=["landscape", "story", "both"])
     for name in ("reference", "transcribe"):
         p = sub.add_parser(name)
         p.add_argument("file", type=Path)
@@ -254,8 +268,15 @@ def main():
         status(a.video)
     elif a.cmd == "approve":
         approve(a.video, a.step)
-    elif a.cmd == "auto":
-        auto(a.video)
+    elif a.cmd == "stills":
+        from ev.render import stills
+        stills(a.video, a.format, a.part, a.scene)
+    elif a.cmd == "vendor":
+        from ev.fromhtml import vendor
+        vendor(a.video)
+    elif a.cmd == "sections":
+        from ev.fromhtml import sections
+        sections(a.video, a.format)
     elif a.cmd == "storyboard":
         storyboard_command(a.video)
     elif a.cmd == "render":

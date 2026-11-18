@@ -105,20 +105,19 @@ const MARK = { done: "✓", you: "●", working: "…", next: "○", locked: "·
 const TURN = { working: "Working", you: "Your turn", next: "Next", done: "Done" };
 
 function steps(c) {
-  const st = c.status, work = c.running, planOk = ["approved", "auto"].includes(st.plan);
-  const plan = st.plan === "approved" ? ["done", "approved"] : st.plan === "auto" ? ["done", "you check it with the preview"]
-    : ["ready", "changed"].includes(st.plan) ? ["you", st.plan === "changed" ? "changed: check again" : "your check"]
+  const st = c.status, work = c.running;
+  const plan = st.plan === "approved" ? ["done", "approved"]
+    : ["ready", "changed"].includes(st.plan) ? ["done", "ready: you check it with the preview"]
     : work ? ["working", "Claude is working"] : ["next", "not ready"];
-  const preview = st.preview === "approved" ? ["done", "approved"]
+  const preview = st.preview === "approved" ? ["done", "approved: the final video"]
     : ["ready", "changed"].includes(st.preview) ? ["you", st.preview === "changed" ? "changed: check again" : "your check"]
-    : planOk && work ? ["working", "Claude is working"] : planOk ? ["next", "next"] : ["locked", "after the plan"];
+    : work ? ["working", "Claude is working"] : ["next", "next"];
   const [ready, total] = c.parts || [0, 0];
-  const final = c.finals ? ["done", "ready to download"] : st.preview === "approved"
-    ? (work ? ["working", `rendering: ${ready} of ${total} parts ready`]
-       : ["you", ready ? `${ready} of ${total} parts: press Render 1080p for the rest` : "press Render 1080p"])
-    : ["locked", "after the preview"];
-  return [["1 Plan", "research, script, voice", ...plan], ["2 Preview", "scenes, 720p video", ...preview],
-          ["3 Final", "1080p video", ...final]];
+  const hd = c.finals ? ["done", "ready to download"] : st.preview === "approved"
+    ? (work ? ["working", `rendering: ${ready} of ${total} parts ready`] : ["next", "optional: see the verdict"])
+    : ["locked", "optional, after the preview"];
+  return [["1 Plan", "research, script, voice", ...plan], ["2 Preview", "scenes, the 720p video", ...preview],
+          ["3 1080p", "optional", ...hd]];
 }
 
 const stepper = c => steps(c).map(([name, what, state, note]) => el("li", { className: `step step-${state}` }, [
@@ -175,7 +174,7 @@ async function refreshDetail() {
   const c = v.summary;
   $("detail").hidden = false;
   $("d-title").textContent = c.title;
-  $("d-slug").textContent = `generated_videos/${slug}`;
+  $("d-slug").textContent = v.folder || slug;
   $("d-steps").replaceChildren(...stepper(c));
   $("d-now").replaceChildren(el("span", { className: `dot turn-${c.turn}` }), text(c.running && c.since ? `${c.now} · ${since(c.since)}` : c.now));
   actions(v, c);
@@ -190,7 +189,7 @@ function actions(v, c) {
   const key = JSON.stringify([slug, v.status, v.has_scenes, v.downloads, v.finals.length, v.estimate, c.turn, c.running, c.finals]);
   if (key === shownActions) return;  // rebuilding every refresh could swallow a click
   shownActions = key;
-  const planOk = ["approved", "auto"].includes(v.status.plan), previewOk = v.status.preview === "approved";
+  const previewOk = v.status.preview === "approved";
   const button = (label, variant, onclick) => el("button", { type: "button", className: "btn", textContent: label,
     disabled: c.running, onclick, ...(variant ? { dataset: { variant } } : {}) });
   const go = kind => async () => {
@@ -200,21 +199,23 @@ function actions(v, c) {
   };
   $("d-actions").replaceChildren(
     ...(c.turn === "next" && !c.running ? [button("Continue", null, go("continue"))] : []),
-    ...(v.has_scenes && planOk && ["waiting", "changed"].includes(v.status.preview) && !c.running
+    ...(v.has_scenes && ["waiting", "changed"].includes(v.status.preview) && !c.running
       ? [button(`${v.status.preview === "changed" ? "Render 720p again" : "Render 720p"} (${v.estimate["720p"]})`, "secondary", go("preview"))] : []),
-    ...(previewOk ? [button(`${c.finals ? "Render 1080p again" : "Render 1080p"} (${v.estimate["1080p"]})`, c.finals ? "secondary" : null, go("final"))] : []),
-    ...v.downloads.map(u => { const m = u.match(/-part(\d+)-(landscape|story)-1080p/); return el("a", { className: "btn", dataset: { variant: "outline" },
+    ...(previewOk ? [button(`${c.finals ? "Render 1080p again" : "Render 1080p (optional)"} (${v.estimate["1080p"]})`, "secondary", go("final"))] : []),
+    ...v.downloads.map(u => { const m = u.match(/-part(\d+)-(landscape|story)-(720p|1080p)/); return el("a", { className: "btn", dataset: { variant: "outline" },
       href: u, title: u.split("/").pop().replace("?download=1", ""),
-      textContent: `Download ${m ? `part ${m[1]}` : "video"}${u.includes("-story-") ? " (story)" : ""}` }); }),
+      textContent: `Download ${m && m[1] ? `part ${m[1]}` : "video"}${u.includes("-story-") ? " (story)" : ""}${u.includes("-1080p") ? " 1080p" : " 720p"}` }); }),
     ...(c.running ? [el("span", { className: "muted", textContent: "Claude is working: follow it in Activity." })] : []));
 }
 
 function checkPane(v, c) {
-  const step = ["plan", "preview"].find(x => !["approved", "auto"].includes(v.status[x])) || null;
-  const can = Boolean(step) && ["ready", "changed"].includes(v.status[step]);
-  const withPlan = v.status.plan === "auto";
+  // The preview is the one check. Before it exists, the plan shows here, and approving it early is optional.
+  const st = v.status, waitingPreview = !["ready", "changed", "approved"].includes(st.preview);
+  const step = ["ready", "changed"].includes(st.preview) ? "preview" : st.preview === "approved" ? null : "plan";
+  const can = Boolean(step) && ["ready", "changed"].includes(st[step]) && (step === "preview" || waitingPreview);
+  const withPlan = step === "preview" && st.plan !== "approved";
   const key = JSON.stringify([v.status, v.fingerprints, v.storyboard && v.storyboard.source, v.storyboard_stale,
-    v.previews, v.contacts, v.finals, v.audio, c.running]);
+    v.previews, v.contacts, v.finals, v.audio, v.verdict, c.running]);
   if (key !== shownCheck) {  // rebuilding would stop a playing video, so only when something changed
     shownCheck = key;
     const script = el("details", {}, [el("summary", { textContent: "script.yaml" }), el("pre", { textContent: v.script })]);
@@ -224,7 +225,7 @@ function checkPane(v, c) {
       body = v.storyboard ? [...(v.audio ? [el("audio", { src: v.audio, controls: true })] : []), ...storyboardView(v), script]
         : [wait(c.running ? "Claude is making the plan: research, picks, script, and voice. The storyboard shows here when the voice is ready."
                           : "No plan yet. Press Continue."),
-           el("p", { className: "muted", textContent: "The 720p MP4 comes in step 2, after you approve the plan." })];
+           el("p", { className: "muted", textContent: "The 720p MP4 comes in step 2. You check the plan with it; an early check here is optional." })];
     } else if (step === "preview") {
       body = [...(v.previews.length ? videosView(v.previews, v.contacts, `${v.previews.length} video${v.previews.length > 1 ? "s" : ""} to watch: pick a part, play it, and look at its review frames.`)
         : [wait(c.running ? "Claude is drawing the scenes and rendering the 720p preview. The MP4 shows here when it is done."
@@ -232,7 +233,9 @@ function checkPane(v, c) {
         ...(withPlan ? [el("h3", { className: "sub", textContent: "The plan: you approve it with this preview" }), ...storyboardView(v), script] : [])];
     } else {
       body = [...videosView(v.finals.length ? v.finals : v.previews, v.finals.length ? [] : v.contacts, ""),
-        el("p", { className: "muted", textContent: v.finals.length ? "Final 1080p video ready. Share it with the audience you approved." : "Preview approved: press Render 1080p." })];
+        el("p", { className: "muted", textContent: v.finals.length ? "1080p video ready. Share it with the audience you approved."
+          : "Approved: this 720p video is the final. Share it with the audience you approved." }),
+        ...(v.verdict && !v.finals.length ? [el("p", {}, [el("strong", { textContent: `1080p: ${v.verdict["1080p"]}. ` }), text(v.verdict.why)])] : [])];
     }
     $("check-body").replaceChildren(...body);
     $("decide").hidden = !can && c.running;
@@ -241,8 +244,8 @@ function checkPane(v, c) {
     $("approve").hidden = !can;
     $("approve").textContent = `Approve the ${step}${step === "preview" && withPlan ? " and the plan" : ""}`;
     $("approve-note").hidden = !can;
-    $("approve-note").textContent = step === "plan" ? "Claude then writes the scenes and renders the 720p preview."
-      : "Then press Render 1080p.";
+    $("approve-note").textContent = step === "plan" ? "Optional: Claude writes the scenes and renders the 720p preview either way."
+      : "This 720p video is the final. 1080p is optional after it.";
     $("check-question").hidden = !can;
     $("approve").onclick = async () => {  // sends the fingerprint shown, so a change after this view is refused
       const r = await post(`/api/videos/${slug}/approve`, { step, expected: v.fingerprints[step] });
@@ -364,8 +367,12 @@ async function refreshSystem() {
       ...(s.docker === "missing" ? [el("span", { className: "muted", textContent: "  Install Colima or Docker Desktop (README, Quick start)." })] : [])]),
     el("dt", { textContent: "Image" }), el("dd", {}, [badge(s.image === "built" ? "built" : s.image === "missing" ? "not built" : "unknown", s.image === "built" ? null : "secondary")]),
     el("dt", { textContent: "Doctor" }), el("dd", {}, [badge(doctor, s.doctor && s.doctor.fail.length ? "destructive" : "secondary")]),
-    el("dt", { textContent: "Claude Code" }), el("dd", {}, [badge(s.claude, s.claude === "logged in" ? null : "destructive"),
-      ...(s.claude !== "logged in" ? [el("span", { className: "muted", textContent: "  Log in once: run claude in a terminal." })] : [])]));
+    el("dt", { textContent: "Claude Code" }), el("dd", {}, [badge(s.claude === "logged in" && s.claude_plan ? `logged in (${s.claude_plan} plan)` : s.claude,
+      s.claude === "logged in" ? null : "destructive"),
+      ...(s.claude !== "logged in" ? [el("span", { className: "muted", textContent: {
+        expired: "  Your login expired: run claude in a terminal, then /login.",
+        "no plan": "  This login has no Claude plan: jobs need Pro, Max, Team, or Enterprise, or an API key.",
+        missing: "  Install Claude Code: jobs run on it." }[s.claude] || "  Log in once: run claude in a terminal." })] : [])]));
   const show = { start: s.docker !== "running" && s.docker !== "missing", stop: s.docker === "running" && s.runtime === "colima",
                  build: s.docker === "running", doctor: s.docker === "running" && s.image === "built" };
   $("system-buttons").replaceChildren(...Object.keys(ACTIONS).filter(a => show[a]).map(a => el("button", {
@@ -374,7 +381,8 @@ async function refreshSystem() {
     onclick: async () => { const r = await post(`/api/system/${a}`, {}); if (r.error) return alert(r.error); refresh(); } })));
   $("three").disabled = s.three === false;  // make doctor found no working WebGL
   if (s.three === false) $("three").checked = false;
-  const reason = s.docker !== "running" ? "Start Docker first." : s.image !== "built" ? "Build the image first." : s.claude !== "logged in" ? "Log in to Claude Code first." : "";
+  const reason = s.docker !== "running" ? "Start Docker first." : s.image !== "built" ? "Build the image first."
+    : s.claude !== "logged in" ? `Claude Code is ${s.claude}: Start runs a Claude job, so fix it in the System card first.` : "";
   $("start").disabled = Boolean(reason);
   $("start-reason").hidden = !reason;
   $("start-reason").textContent = reason;
@@ -403,9 +411,17 @@ async function refresh() {
 
 // The slug follows the topic until you edit it: "How DNS works" -> how-dns-works.
 const slugify = t => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").slice(0, 5).join("-").slice(0, 60);
+// A source that is one path to an .html or .htm file makes a video from that page (make from-html):
+// it starts with ~, /, ./, ../, or a folder name and a slash, so "explain index.html" stays a topic.
+const htmlPage = t => (/^(~|\/|\.{1,2}\/|[^\s\/]+\/)[^\n]*\.html?$/i.test(t.trim()) ? t.trim() : null);
+const pageSlug = p => p.split("/").pop().replace(/\.html?$/i, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
 let slugEdited = false;
 $("slug").oninput = () => { slugEdited = $("slug").value.trim() !== ""; };
-$("source").oninput = () => { if (!slugEdited) $("slug").value = slugify($("source").value); };
+$("source").oninput = () => {
+  const page = htmlPage($("source").value);
+  if (!slugEdited) $("slug").value = page ? pageSlug(page) : slugify($("source").value);
+  $("html-note").hidden = !page;
+};
 
 // Catalogs for the New video form: "Recommend for me" by default, or one entry, with its swatch.
 async function loadCatalogs() {
@@ -438,23 +454,28 @@ async function loadSamples() {
         slugBox,
         el("button", { type: "button", className: "btn", dataset: { variant: "secondary" }, textContent: "Start from this sample",
           onclick: async () => { const x = await post(`/api/samples/${s.name}/use`, { slug: slugBox.value.trim() });
-            if (x.error) return alert(x.error); await refresh(); open(slugBox.value.trim(), "activity"); } })])]);
+            if (x.error) return alert(x.error); await refresh(); open(x.slug || slugBox.value.trim(), "activity"); } })])]);
   }) : [el("div", { className: "empty", textContent: "No samples in videos/samples/ yet." })]));
 }
 
 $("new").onsubmit = async e => {
   e.preventDefault();
   const vf = $("vformat").value, mood = $("mood").value, newSlug = $("slug").value.trim();
-  const prompt = `Use the explainer-video skill. Source: ${$("source").value.trim()}. Format: ${$("format").value}. ` +
-    (vf !== "recommend" ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
-    `3D: ${$("three").checked ? "allowed (three: true)" : "off (three: false)"}. ` +
+  const page = htmlPage($("source").value);
+  // An HTML page: the server copies it and names it in the prompt, so the path never reaches Claude as a source.
+  const prompt = `Use the explainer-video skill. ${page ? "Make a video from an HTML page." : `Source: ${$("source").value.trim()}.`} ` +
+    `Format: ${$("format").value}. ` +
+    (vf !== "recommend" && !page ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
+    `3D: ${$("three").checked && !page ? "allowed (three: true)" : "off (three: false)"}. ` +
     `Voice: ${$("voice").value}. Length per part: ${$("length").value}. Use defaults for anything else.`;
-  const r = await post("/api/jobs", { prompt, slug: newSlug, add_dir: $("dir").value.trim(), auto: $("auto").checked });
+  const r = await post("/api/jobs", { prompt, slug: newSlug, add_dir: $("dir").value.trim(), html: page,
+    plan_check: $("plan-check").checked });
   if (r.error) return alert(r.error);
-  // Ready for the next topic: each video runs on its own and has its own card.
-  $("source").value = ""; $("slug").value = ""; $("dir").value = ""; $("auto").checked = false; slugEdited = false;
+  // Ready for the next topic: each video runs on its own and has its own card, under its project id.
+  $("source").value = ""; $("slug").value = ""; $("dir").value = ""; $("plan-check").checked = false; slugEdited = false;
+  $("html-note").hidden = true;
   await refresh();
-  open(newSlug, "activity");
+  open(r.slug || newSlug, "activity");
 };
 
 loadCatalogs();

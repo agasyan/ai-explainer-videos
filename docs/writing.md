@@ -23,7 +23,7 @@ For a topic, the agent writes `research.md` before the script: one table, one ro
 2. A claim is checked when two independent sources agree; with one, its status is `one source`.
 3. Each beat that states a fact lists its claims: `sources: [c1]`.
 4. `make narrate` prints `CHECK` for a beat that cites an unknown claim, or states a number with no source.
-5. Approving the plan approves `research.md`: the plan check covers it.
+5. Approving the preview (or an early plan check) approves `research.md`: the plan hash covers it.
 
 ## Narration: about 80% of the way to ASD-STE100
 
@@ -96,4 +96,4 @@ parts:
             show: A Part 2 of 2 badge, then a clock icon crossed out.
 ```
 
-Output: `out/<slug>-part1-story-1080p.mp4`, `out/<slug>-part2-story-1080p.mp4`, and so on. Scene ids must be unique across all parts. One approval covers all parts.
+Output: `out/<slug>-part1-story-720p.mp4`, `out/<slug>-part2-story-720p.mp4`, and so on (and `-1080p` when you render it). Scene ids must be unique across all parts. One approval covers all parts.

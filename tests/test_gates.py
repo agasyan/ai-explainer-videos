@@ -82,33 +82,45 @@ class GatesTest(unittest.TestCase):
         gates.approve(self.video, "plan", expected=gates.fingerprint(self.video, "plan"))
         self.assertTrue(gates.approved(self.video, "plan"))
 
-    def test_auto_consent_allows_720p_but_not_1080p(self):
-        with self.assertRaises(SystemExit):
-            gates.require(self.video, "720p")
-        gates.consent(self.video, by="t")
-        gates.require(self.video, "720p")
-        self.assertEqual("auto", gates.status(self.video)["plan"])
-        with self.assertRaises(SystemExit):
+    def test_720p_needs_no_approval_and_1080p_needs_the_preview(self):
+        gates.require(self.video, "720p", "landscape")  # the preview is the check: nothing waits before it
+        with self.assertRaisesRegex(SystemExit, "preview is not approved"):
             gates.require(self.video, "1080p", "landscape")
-
-    def test_preview_approval_under_auto_approves_the_plan_once(self):
-        gates.consent(self.video, by="t")
         self.narrated()
         self.previewed()
         gates.approve(self.video, "preview")
+        gates.require(self.video, "1080p", "landscape")
+        with self.assertRaisesRegex(SystemExit, "no approved story preview"):
+            gates.require(self.video, "1080p", "story")
+
+    def test_preview_approval_approves_the_plan_with_it(self):
+        self.narrated()
+        self.previewed()
+        self.assertEqual({"plan": "ready", "preview": "ready"}, gates.status(self.video))
+        gates.approve(self.video, "preview")
         data = gates.read(self.video, "approved.json")
         self.assertEqual("preview", data["plan"]["with"])
-        self.assertNotIn("auto", data)
         self.assertEqual({"plan": "approved", "preview": "approved"}, gates.status(self.video))
         (self.video / "script.yaml").write_text(SCRIPT.replace("Hello there.", "Hi."))
-        with self.assertRaises(SystemExit):  # the consent is used up: an edited plan needs a check again
-            gates.require(self.video, "720p")
+        self.assertEqual("changed", gates.status(self.video)["plan"])
 
-    def test_any_approval_uses_the_consent_up(self):
-        gates.consent(self.video, by="t")
+    def test_preview_approval_refuses_a_plan_edited_after_the_render(self):
+        self.narrated()
+        self.previewed()
+        (self.video / "script.yaml").write_text(SCRIPT.replace("Hello there.", "Hi."))
+        self.previewed()  # the render matches the files, and the narration does not
+        with self.assertRaisesRegex(SystemExit, "The plan changed after the preview"):
+            gates.approve(self.video, "preview")
+
+    def test_an_early_plan_check_stays_and_an_old_consent_goes(self):
+        (self.video / "approved.json").write_text(json.dumps({"auto": {"until": "preview", "by": "t", "at": "now"}}))
         self.narrated()
         gates.approve(self.video, "plan")
-        self.assertFalse(gates.auto(self.video))
+        self.previewed()
+        gates.approve(self.video, "preview")
+        data = gates.read(self.video, "approved.json")
+        self.assertNotIn("with", data["plan"])
+        self.assertNotIn("auto", data)
 
 
 class HashReadsWhatYamlReadsTest(unittest.TestCase):

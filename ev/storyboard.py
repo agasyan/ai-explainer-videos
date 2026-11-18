@@ -63,7 +63,7 @@ def build(spec, narration, mood=None, known=None, research_rows=(), frames=None)
             treatment = str(scene.get("treatment") or "")
             if mood and not treatment:
                 issues.append(f"{scene['id']}: add treatment: one of {', '.join(treatments)} (moodboard {mood['name']})")
-            elif mood and treatment not in treatments:
+            elif mood and treatment not in treatments and treatment != "page":  # page: a capture (make from-html)
                 issues.append(f"{scene['id']}: treatment {treatment} is not in moodboard {mood['name']}: "
                               f"use one of {', '.join(treatments)}")
             dim = "3D" if treatment == "stage-3d" or scene.get("three_why") else "2D"

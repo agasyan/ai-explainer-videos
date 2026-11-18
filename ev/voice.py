@@ -48,18 +48,29 @@ def speak(text, wav, voice, speed):
         tmp.replace(wav)
 
 
+def hear_many(wavs):
+    """whisper.cpp listens to every clip in one run, so the model loads once (it took about 4 s per beat when each
+    clip started its own run). Returns one [{"w", "start", "end"}] list per clip, times in seconds."""
+    if not wavs or not shutil.which("whisper-cli"):
+        return [[] for _ in wavs]
+    with tempfile.TemporaryDirectory() as tmp:
+        inputs = []
+        for i, wav in enumerate(wavs):
+            w16 = Path(tmp) / f"{i:04d}.wav"
+            ffmpeg("-i", wav, "-ar", 16000, "-ac", 1, w16)
+            inputs += ["-f", w16]
+        run("whisper-cli", "-m", WHISPER, *inputs, "-l", "en", "-ml", 1, "-sow", "-oj", "-np", capture_output=True)
+        found = []
+        for i in range(len(wavs)):  # whisper-cli writes <input>.json next to each input
+            segments = json.loads((Path(tmp) / f"{i:04d}.wav.json").read_text())["transcription"]
+            found.append([{"w": s["text"].strip(), "start": s["offsets"]["from"] / 1000, "end": s["offsets"]["to"] / 1000}
+                          for s in segments if s["text"].strip() and not s["text"].strip().startswith("[")])
+    return found
+
+
 def hear(wav):
     """whisper.cpp listens to one clip. Returns [{"w", "start", "end"}] in seconds."""
-    if not shutil.which("whisper-cli"):
-        return []
-    with tempfile.TemporaryDirectory() as tmp:
-        w16, out = Path(tmp) / "a.wav", Path(tmp) / "out"
-        ffmpeg("-i", wav, "-ar", 16000, "-ac", 1, w16)
-        run("whisper-cli", "-m", WHISPER, "-f", w16, "-l", "en", "-ml", 1, "-sow", "-oj", "-of", out, "-np",
-            capture_output=True)
-        segments = json.loads(out.with_suffix(".json").read_text())["transcription"]
-    return [{"w": s["text"].strip(), "start": s["offsets"]["from"] / 1000, "end": s["offsets"]["to"] / 1000}
-            for s in segments if s["text"].strip() and not s["text"].strip().startswith("[")]
+    return hear_many([wav])[0]
 
 
 NUMBER_WORDS = set("zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
@@ -109,27 +120,33 @@ def narrate(video):
     audio = video / "build" / "audio"
     audio.mkdir(parents=True, exist_ok=True)
     scenes, flagged = {}, []
-    total, done = sum(len(s["beats"]) for p in spec["parts"] for s in p["scenes"]), 0
+
+    def clip(scene, i, beat):
+        say = " ".join(str(beat["say"]).split())
+        bid, text = str(beat.get("id", i)), say.replace("*", "")
+        key = hashlib.sha1(f"kokoro|{voice}|{speed}|{text}".encode()).hexdigest()[:10]
+        return say, bid, text, audio / f"{scene['id']}-{bid}-{key}.wav"
+
+    beats = [(scene, i, beat) for part in spec["parts"] for scene in part["scenes"] for i, beat in enumerate(scene["beats"])]
+    new = [clip(*b) for b in beats if not clip(*b)[3].with_suffix(".json").exists()]
+    for k, (_, _, text, wav) in enumerate(new, 1):  # speak every new beat, then check them all in one whisper run
+        progress(video, "Making the voice", f"beat {k} of {len(new)}")
+        speak(text, wav, voice, speed)
+    if new:
+        progress(video, "Checking the voice", f"{len(new)} beats")
+    for (_, _, text, wav), heard in zip(new, hear_many([c[3] for c in new])):
+        duration = sf.info(wav).duration
+        words, match = align(text, heard, duration)
+        wav.with_suffix(".json").write_text(json.dumps({"duration": duration, "words": words, "match": match,
+                                                        "heard": " ".join(h["w"] for h in heard)}))
     for n, part in enumerate(spec["parts"], 1):
         length = 0.0
         print(f"PART {n}: {part.get('title', '')}")
         for scene in part["scenes"]:
             scenes[scene["id"]] = []
             for i, beat in enumerate(scene["beats"]):
-                say = " ".join(str(beat["say"]).split())
-                bid, text = str(beat.get("id", i)), say.replace("*", "")
-                key = hashlib.sha1(f"kokoro|{voice}|{speed}|{text}".encode()).hexdigest()[:10]
-                wav = audio / f"{scene['id']}-{bid}-{key}.wav"
-                meta = wav.with_suffix(".json")
-                done += 1
-                if not meta.exists():
-                    progress(video, "Making the voice", f"beat {done} of {total}")
-                    speak(text, wav, voice, speed)
-                    heard, duration = hear(wav), sf.info(wav).duration
-                    words, match = align(text, heard, duration)
-                    meta.write_text(json.dumps({"duration": duration, "words": words, "match": match,
-                                                "heard": " ".join(h["w"] for h in heard)}))
-                m = json.loads(meta.read_text())
+                say, bid, text, wav = clip(scene, i, beat)
+                m = json.loads(wav.with_suffix(".json").read_text())
                 m["words"] = [{**w, "key": k} for w, k in zip(m["words"], key_flags(say))]
                 scenes[scene["id"]].append({"id": bid, "text": text, "wav": str(wav.resolve()), **m})
                 length += m["duration"] + gap + float(beat.get("hold", 0))

@@ -1,8 +1,9 @@
-"""Approval checks: the plan (script + storyboard) and the 720p preview.
+"""Approval checks: one required check, the 720p preview, which is the final video. The plan check is optional,
+and 1080p is an optional render after the preview check.
 
 Standard library only: ev (in Docker) and dashboard/server.py (on the host) both use it.
 An approval stores a hash of what it covers. If that changes later, the approval stops counting,
-and the heavy work after it refuses to run until someone approves again.
+and 1080p refuses to run until someone approves the preview again.
 
 - plan covers script.yaml, except the top-level `format`, `look`, `moodboard`, `three`, `captions`, and `engine`
   lines and each beat's `hold` (timing, look, and renderer, which the preview check covers), plus research.md.
@@ -10,9 +11,8 @@ and the heavy work after it refuses to run until someone approves again.
 
 Approvals count only from a file named exactly approved.json (see exact()).
 
-Auto mode: `make auto` (an ask rule) or the dashboard's Start click records your consent as "auto" in approved.json.
-Then 720p runs without the plan check, and approving the preview also approves the plan it was made from.
-The consent counts until that preview approval, once.
+Narrate and the 720p preview wait for no approval. Approving the preview approves the plan it was made from too,
+unless you approved the plan on its own before (make approve STEP=plan).
 """
 import hashlib
 import json
@@ -25,8 +25,9 @@ STEPS = ("plan", "preview")
 CHECK = {
     "plan": "Right story for the viewer? Facts match the source? Each beat's words and picture make sense? "
             "Did you listen to build/narration.wav?",
-    "preview": "Each frame shows its storyboard line? Nothing cut off, overlapping, or too small? "
-               "Zero customer data or secrets? Right audience (internal or public)?",
+    "preview": "Right story, and facts that match the source? Each frame shows its storyboard line? Nothing cut off, "
+               "overlapping, or too small? Zero customer data or secrets? Right audience (internal or public)? "
+               "This 720p video is the final video; 1080p is optional.",
 }
 # Keys the plan hash skips: these at the top level only (picks.moodboard is plan), and a beat's `hold` at any depth.
 # ev.common.load() refuses a script where skipping these lines would hide more than the keys.
@@ -93,21 +94,6 @@ def approved(video, step):
     return bool(entry) and entry["hash"] == fingerprint(video, step)
 
 
-def auto(video):
-    """True while the user's auto-until-preview consent stands: 720p may run before the plan is approved."""
-    return read(video, "approved.json").get("auto", {}).get("until") == "preview"
-
-
-def consent(video, by=None):
-    """Record the user's consent to run to the 720p preview with no plan stop. Only a person does this:
-    `make auto` is an ask rule, and the dashboard writes it on the Start click."""
-    data = read(video, "approved.json")
-    data["auto"] = {"until": "preview", "by": by or os.environ.get("EV_USER") or os.environ.get("USER") or "unknown",
-                    "at": datetime.now(timezone.utc).isoformat(timespec="minutes")}
-    write(video, data)
-    return data["auto"]
-
-
 def write(video, data):
     for other in os.listdir(video):  # a case variant would keep its name and hide the new approval
         if other.lower() == "approved.json" and other != "approved.json":
@@ -129,31 +115,28 @@ def ready(video, step):
         path = video / "script.yaml"
         return (path.exists() and "(fill in)" not in path.read_text()
                 and read(video, "build/narration.json").get("source") == fingerprint(video, "plan"))
-    return (approved(video, "plan") or auto(video)) and bool(preview_formats(video))
+    return bool(preview_formats(video))
 
 
 def status(video):
-    """{step: "approved" | "ready" (waiting for your check) | "changed" (edited after approval) | "waiting"
-    | "auto" (plan only: you chose to check it with the preview)}"""
+    """{step: "approved" | "ready" (waiting for your check) | "changed" (edited after approval) | "waiting"}.
+    A plan that is "ready" needs no action: the preview check covers it."""
     approvals = read(video, "approved.json")
     return {step: "approved" if approved(video, step) else "changed" if step in approvals
-            else "auto" if step == "plan" and auto(video) else "ready" if ready(video, step) else "waiting"
-            for step in STEPS}
+            else "ready" if ready(video, step) else "waiting" for step in STEPS}
 
 
-def require(video, quality, fmt=None):
-    """Stop heavy work unless its approval is current: 720p needs the plan, 1080p needs the preview."""
+def require(video, quality, fmt):
+    """Stop the optional 1080p render unless the preview is approved for this format. 720p needs no approval."""
     name = Path(video).name
-    if quality == "720p" and not approved(video, "plan") and not auto(video):
-        raise SystemExit(f"Approval check: the plan is not approved, or it changed after approval.\n"
-                         f"Run make narrate SLUG={name}, check the storyboard, then: make approve SLUG={name} STEP=plan")
-    if quality == "1080p":
-        if not approved(video, "preview"):
-            raise SystemExit(f"Approval check: the 720p preview is not approved, or a file changed after approval.\n"
-                             f"Run make preview SLUG={name}, check it, then: make approve SLUG={name} STEP=preview")
-        if fmt not in read(video, "approved.json")["preview"]["formats"]:
-            raise SystemExit(f"Approval check: no approved {fmt} preview. "
-                             f"Run make preview SLUG={name} FORMAT={fmt}, then approve it.")
+    if quality != "1080p":
+        return
+    if not approved(video, "preview"):
+        raise SystemExit(f"Approval check: the 720p preview is not approved, or a file changed after approval.\n"
+                         f"Run make preview SLUG={name}, check it, then: make approve SLUG={name} STEP=preview")
+    if fmt not in read(video, "approved.json")["preview"]["formats"]:
+        raise SystemExit(f"Approval check: no approved {fmt} preview. "
+                         f"Run make preview SLUG={name} FORMAT={fmt}, then approve it.")
 
 
 def approve(video, step, expected=None):
@@ -164,9 +147,7 @@ def approve(video, step, expected=None):
         raise SystemExit(f"STEP must be one of: {', '.join(STEPS)}")
     if expected is not None and expected != fingerprint(video, step):
         raise SystemExit("Changed since you looked: check again")
-    with_preview = step == "preview" and not approved(video, "plan") and auto(video)
-    if step == "preview" and not approved(video, "plan") and not with_preview:
-        raise SystemExit(f"Approve the plan first: make approve SLUG={name} STEP=plan")
+    with_preview = step == "preview" and not approved(video, "plan")
     if with_preview and not ready(video, "plan"):
         raise SystemExit(f"The plan changed after the preview: run make narrate and a full make preview SLUG={name}")
     if not ready(video, step):
@@ -180,7 +161,7 @@ def approve(video, step, expected=None):
         data[step]["formats"] = preview_formats(video)
     if with_preview:  # the preview shows the plan in full, so this one check approves both
         data["plan"] = {"hash": fingerprint(video, "plan"), **stamp, "with": "preview"}
-    data.pop("auto", None)  # any approval uses the consent up: a later plan edit needs a check again
+    data.pop("auto", None)  # an old consent from before the plan check became optional
     write(video, data)
     return data[step]
 

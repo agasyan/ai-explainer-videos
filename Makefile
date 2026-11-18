@@ -1,5 +1,7 @@
 export HOST_UID := $(shell id -u)
 export HOST_GID := $(shell id -g)
+# A new project's date, from your clock (Docker's runs in UTC).
+export EV_TODAY := $(shell date +%Y%m%d)
 # Only these values may come from the command line. Any other (EV=, SHELL=, MAKEFLAGS=) could replace a recipe.
 ARGS := SLUG TITLE STEP FORMAT PART SCENE FILE MODEL SAMPLE
 $(foreach v,$(.VARIABLES),$(if $(filter command line,$(origin $(v))),$(if $(filter $(v),$(ARGS)),,$(error $(v)= is not an option here. Options: $(ARGS)))))
@@ -15,32 +17,37 @@ EV   = $(COMPOSE) run --rm -T ev
 # $(value X) keeps make from running a $(shell ...) hidden in X; q quotes it for sh.
 q    = '$(subst ','\'',$(value $(1)))'
 unexport SLUG TITLE STEP FORMAT PART SCENE FILE MODEL SAMPLE  # make would expand them to export them
-V    = 'generated_videos/$(subst ','\'',$(value SLUG))'
+# A name or a project id: ev finds projects/<id>, or generated_videos/<slug> for an older video.
+V    = $(call q,SLUG)
 OPTS = $(if $(value FORMAT),--format $(call q,FORMAT)) $(if $(value PART),--part $(call q,PART)) $(if $(value SCENE),--scene $(call q,SCENE))
 
 help:       ## List the commands
-	@awk -F':.*## ' '/^[a-z]+:.*## /{printf "  %-11s %s\n", $$1, $$2}' Makefile
+	@awk -F':.*## ' '/^[a-z-]+:.*## /{printf "  %-11s %s\n", $$1, $$2}' Makefile
 build:      ## Build the Docker image (once)
 	$(COMPOSE) build
 doctor:     ## Check every tool inside the image
 	$(EV) doctor
 test:       ## Run the unit tests (tests/) inside the image
 	docker run --rm --network none --user $(HOST_UID):$(HOST_GID) -v "$(CURDIR)":/work:ro ai-explainer-videos test  # read-only: test code cannot write a video or an approval
-new:        ## Start a video: make new SLUG=dns TITLE="How DNS works" [SAMPLE=autopilot-training]
+new:        ## Start a project, projects/<YYYYMMDD>-dns: make new SLUG=dns TITLE="How DNS works" [SAMPLE=autopilot-training]
 	$(EV) new $(call q,SLUG) --title $(call q,TITLE) $(if $(value SAMPLE),--sample $(call q,SAMPLE))
+from-html:  ## Start a project from an HTML page: make from-html SLUG=x FILE=~/page.html [FORMAT=story]
+	id=$$($(if $(value FILE),python3 -I ev/intake.py $(call q,SLUG) $(call q,FILE),printf '%s' $(V))) && \
+	$(COMPOSE) run --rm -T ev-online vendor "$$id" && \
+	$(EV) sections "$$id" $(if $(value FORMAT),--format $(call q,FORMAT))
 narrate:    ## Step 1: make the voice and write storyboard.md: make narrate SLUG=dns
 	$(EV) narrate $(V)
 storyboard: ## Rewrite storyboard.md and print it as JSON: make storyboard SLUG=dns
 	$(EV) storyboard $(V)
 status:     ## Show the steps and the next action: make status SLUG=dns
 	$(EV) status $(V)
-approve:    ## Approve a step after you check it: make approve SLUG=dns STEP=plan|preview
+approve:    ## Approve the preview (the final video) after you check it: make approve SLUG=dns STEP=preview
 	$(EV) approve $(V) $(call q,STEP)
-auto:       ## Your consent to run to the 720p preview with no plan stop: make auto SLUG=dns
-	$(EV) auto $(V)
-preview:    ## Step 2: 720p video, review frames, lint: make preview SLUG=dns [FORMAT=story] [SCENE=hook]
+stills:     ## Fast check while drawing: the frame before each beat, lint: make stills SLUG=dns SCENE=hook
+	$(EV) stills $(V) $(OPTS)
+preview:    ## Step 2: the 720p video (the final), review frames, lint: make preview SLUG=dns [FORMAT=story]
 	$(EV) render $(V) --quality 720p $(OPTS)
-video:      ## Step 3: 1080p video, after the preview is approved: make video SLUG=dns [FORMAT=both]
+video:      ## Optional 1080p, after the preview is approved: make video SLUG=dns [FORMAT=both]
 	$(EV) render $(V) --quality 1080p $(OPTS)
 reference:  ## Study a reference video's pacing and look: make reference FILE=ref.mp4
 	$(EV) reference $(call q,FILE)
@@ -55,4 +62,4 @@ dashboard:  ## Local web page that runs Claude Code jobs
 shell:      ## Open a shell inside the image
 	$(COMPOSE) run --rm --entrypoint bash ev
 
-.PHONY: help build doctor test catalog sample new narrate storyboard status approve auto preview video reference transcribe dashboard shell
+.PHONY: help build doctor test catalog sample new from-html narrate storyboard status approve stills preview video reference transcribe dashboard shell

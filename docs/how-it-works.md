@@ -20,7 +20,7 @@ flowchart LR
 |------|-----|
 | Kokoro v1.0 (kokoro-onnx 0.6.1) | Speaks each beat on your CPU. US and UK English voices. |
 | whisper.cpp 1.9.5 | Listens to each clip: flags words the voice got wrong, and gives the time of every word. Speech to text only; it does not make the voice. |
-| Headless Chromium (Playwright 1.63) | Opens each scene page, moves it to time t, and takes a screenshot, once per frame. With `engine: hyperframes`, it only lints the beat frames. |
+| Headless Chromium (Playwright 1.63) | Opens each scene page, moves it to time t, and takes a full-size JPEG over the DevTools protocol, once per frame, 3 pages at a time. With `engine: hyperframes`, it only lints the beat frames. `make from-html` also uses it to capture a page's sections. |
 | HyperFrames 0.8.157 (optional engine) | Captures every frame in parallel Chrome workers, and seeks `<video>` clips frame by frame. See [Engines](#engines). |
 | EV runtime (`ev/web/ev.js`, this repo), rough.js 4.6, KaTeX 0.19 | GSAP-style tweens computed from time, captions, and layout lint; hand-drawn shapes; math. All inside the page. |
 | ffmpeg | Encodes frames, joins scenes, mixes the voice, and writes the MP4. |
@@ -31,7 +31,7 @@ flowchart LR
 1. `make narrate` speaks each beat and saves the clip length and the time of every word.
 2. A beat starts when the beat before it stops talking, plus `gap`, plus `hold` if the beat before sets one.
 3. The renderer gives each scene page these times in `window.EV_DATA`. `EV.at("beat", "word")` returns the second the voice says that word.
-4. For every frame (30 per second), the renderer calls `EV.seek(t)` and takes a screenshot.
+4. For every frame (30 per second), the renderer calls `EV.seek(t)` and takes a screenshot. Because each frame depends only on t, any page can render any range of frames: the renderer runs 3 pages at a time (`EV_WORKERS`), and splits a long scene into chunks of frames that ffmpeg joins.
 
 Picture and voice cannot drift apart. If an animation needs more time, add `hold` to its beat.
 
@@ -41,10 +41,10 @@ Set `engine:` in `script.yaml`. Both engines run the same scene pages and the sa
 
 | | `playwright` (default) | `hyperframes` |
 |---|---|---|
-| Captures frames | One page, one screenshot per frame | `hyperframes render`, parallel Chrome workers |
+| Captures frames | 3 pages at a time, one full-size JPEG per frame; long scenes split into chunks | `hyperframes render`, parallel Chrome workers |
 | `<video>` clips in a scene | Not seeked: do not use | Seeked frame by frame ([scenes.md](scenes.md#video-clips)) |
 | Lint and review stills | From the capture | Playwright lints the beat frames; stills are cut from the MP4 |
-| 720p preview | Drawn at 720p | Drawn at 1080p (fast preset), then scaled to 720p |
+| 720p | Captured at 1920 x 1080, scaled to 720p by ffmpeg | Drawn at 1080p (fast preset), then scaled to 720p |
 
 How the `hyperframes` engine works:
 
@@ -55,14 +55,16 @@ How the `hyperframes` engine works:
 
 **Privacy.** The image turns off HyperFrames telemetry, update checks, and auto-installs (`HYPERFRAMES_NO_TELEMETRY=1`, `DO_NOT_TRACK=1`). The pipeline never calls the commands that upload (`publish`, `cloud`, `lambda`, `auth`), and never sets `GEMINI_API_KEY`, which makes `hyperframes snapshot` send frames to Gemini.
 
-**Speed.** Measured 2026-10-14 on a 10 s video of 2 scenes (Colima, 4 CPUs, 8 GB, Apple Silicon):
+**Speed.** Measured 2026-11-18 on Colima (Apple Silicon, 4 CPUs, 5.8 GB), a full 720p render of a 139 s video of 5 scenes, nothing cached:
 
-| Quality | `playwright` | `hyperframes` |
-|---------|--------------|---------------|
-| 720p | 11 s | 21 s |
-| 1080p | 12 s | 21 s |
+| Renderer | Wall time | Note |
+|----------|-----------|------|
+| Before: one page, `page.screenshot()` at a 2/3 device scale | 2:38 | about 0.036 s a frame |
+| Now: 3 pages, DevTools JPEG at full size, ffmpeg scales to 720p | 1:22 | the 74 s scene splits into 2 chunks |
 
-HyperFrames starts Chrome once per scene, so short scenes favor `playwright`. ⚠️ Unverified: whether its parallel workers win on long scenes. Set `EV_HF_WORKERS=2` (for example `EV_HF_WORKERS=2 make preview SLUG=dns`) if Docker has little memory; each worker is a Chrome of about 256 MB (HyperFrames docs).
+- One screenshot: 33 ms with `page.screenshot()`, 21 ms with the DevTools call at full size (a simple page, same machine). A DevTools call with a 2/3 clip scale gives 720p but takes 33 ms, so the renderer captures full size and lets ffmpeg scale.
+- Parallel pages gain most when scenes are of equal length. A long scene splits into chunks of at least 240 frames.
+- HyperFrames was slower on a 10 s test (21 s against 11 s, 2026-10-14): it starts Chrome once per scene, and on a machine with no GPU and under 8 GB it uses 1 worker and plain screenshots. Keep it for `<video>` clips. Set `EV_HF_WORKERS=2` if Docker has little memory; each worker is a Chrome of about 256 MB (HyperFrames docs).
 
 **Browser.** HyperFrames uses Playwright's Chrome headless shell. Google builds no headless shell for Linux ARM64 (Apple Silicon under Docker), and one browser keeps both engines the same.
 
@@ -72,7 +74,7 @@ Switching the engine cancels the preview approval (it changes the picture), but 
 
 - **Any look.** Diagrams, UI mockups, maps, charts, code, icons, hand-drawn whiteboard, and math all fit.
 - **Agents write it well.** Language models are strong at HTML, SVG, and CSS.
-- **The preview is the video.** 720p and 1080p use the same page size in CSS px and differ only in pixel density, so the layout you approve is the layout you get.
+- **The preview is the video.** The 720p video you approve is the final. The optional 1080p uses the same page size in CSS px and differs only in pixel density, so its layout is the one you approved.
 - **Not Manim:** it fits math, not every topic. **Not Remotion:** larger companies need a paid company license (⚠️ check remotion.dev/license).
 
 ## Automatic checks
@@ -118,4 +120,5 @@ The coding agent is your choice: [AGENTS.md](../AGENTS.md) works with any agent.
 ## Caching
 
 - **Voice clips:** one per beat text, voice, and speed. Edit one beat, and only that clip is made again.
-- **Scene renders:** one per scene page, style, timing, size, and engine. Edit one scene, and only that scene renders again.
+- **Scene renders:** one per scene page, style, timing, size, engine, and capture version. Edit one scene, and only that scene renders again. A change to `ev/web/` or `assets/` renders every scene again.
+- **Stills:** `make stills` renders only the frame before each next beat, with no cache: seconds, not minutes, for a check while you draw.

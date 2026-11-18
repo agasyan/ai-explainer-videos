@@ -19,15 +19,16 @@
 <main class="layout">
   <div class="stack">
     <section class="card">
-      <header><h2 class="card-title">New video</h2><p class="card-description">A topic, PR, repo path, or file. Start as many as you like: each gets its own card.</p></header>
+      <header><h2 class="card-title">New video</h2><p class="card-description">A topic, PR, repo path, file, or an HTML page. Start as many as you like: each gets its own card.</p></header>
       <section>
         <form id="new" class="stack">
           <div class="field">
             <label for="source">Source</label>
-            <textarea id="source" class="textarea" rows="3" required placeholder="PR #482&#10;how DNS works&#10;../checkout-service"></textarea>
+            <textarea id="source" class="textarea" rows="3" required placeholder="PR #482&#10;how DNS works&#10;~/reports/q3-review.html"></textarea>
+            <p class="muted" id="html-note" hidden>An HTML page: the dashboard copies it into the video folder, and Claude narrates its sections in order. A relative path is read from the Extra folder below.</p>
           </div>
           <div class="field">
-            <label for="slug">Slug: the video's folder in generated_videos/</label>
+            <label for="slug">Name: the project folder is projects/&lt;today&gt;-&lt;name&gt;</label>
             <input id="slug" class="input" required maxlength="60" pattern="[a-z0-9][a-z0-9-]*" placeholder="how-dns-works">
           </div>
           <div class="pair">
@@ -52,8 +53,8 @@
             <label for="dir">Extra folder Claude may read (optional)</label>
             <input id="dir" class="input" placeholder="~/code/checkout-service">
           </div>
-          <label class="check"><input type="checkbox" id="auto" class="input">
-            <span>Run until the 720p preview without stopping. You check the plan with the preview.</span></label>
+          <label class="check"><input type="checkbox" id="plan-check" class="input">
+            <span>Stop after the plan, so I can check the script before the scenes. By default Claude runs to the 720p preview, and you check both there.</span></label>
           <button class="btn" id="start">Start</button>
           <p class="muted" id="start-reason" hidden></p>
         </form>
@@ -74,7 +75,7 @@
   </div>
   <div class="stack">
     <section class="card">
-      <header><h2 class="card-title">Videos</h2><p class="card-description">Each video, its 3 steps, and what happens now. Select one to check it.</p></header>
+      <header><h2 class="card-title">Videos</h2><p class="card-description">Each video, its steps, and what happens now. Select one to check it.</p></header>
       <section><div class="board" id="videos"><div class="empty">Loading videos</div></div></section>
     </section>
     <section class="card" id="detail" hidden>

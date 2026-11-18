@@ -1,6 +1,6 @@
 # Drawing scenes
 
-A scene is one HTML page: `generated_videos/<slug>/scenes/<scene id>.html`. Draw with HTML, SVG, CSS, rough.js, or KaTeX, and animate with the `EV` runtime. Its full API is the comment at the top of [ev/web/ev.js](../ev/web/ev.js). Starter scenes are in [templates/video/scenes/](../templates/video/scenes/).
+A scene is one HTML page: `scenes/<scene id>.html` in the video's project folder. Draw with HTML, SVG, CSS, rough.js, or KaTeX, and animate with the `EV` runtime. Its full API is the comment at the top of [ev/web/ev.js](../ev/web/ev.js). Starter scenes are in [templates/video/scenes/](../templates/video/scenes/).
 
 ## Page skeleton
 
@@ -91,7 +91,7 @@ The renderer turns the YAML into CSS variables in `/ev/theme.css` (link it after
 | `--radius`, `--stroke` | `shape` |
 | `--cap-ink`, `--cap-bg`, `--cap-now`, `--cap-key` | `captions` |
 
-Override any variable in the video's `style.css`, but keep the moodboard's contrast: ink on bg 4.5:1 or more, muted and accent 3:1 or more. Base classes: `.title`, `.subtitle`, `.label`, `.small`, `.big-number`, `.card`, `.row`, `.mono`, `.hand`, `.accent`, `.accent-2`, `.good`, `.bad`, `.muted`. Put images in `generated_videos/<slug>/assets/` and use `<img src="../assets/name.png">`.
+Override any variable in the video's `style.css`, but keep the moodboard's contrast: ink on bg 4.5:1 or more, muted and accent 3:1 or more. Base classes: `.title`, `.subtitle`, `.label`, `.small`, `.big-number`, `.card`, `.row`, `.mono`, `.hand`, `.accent`, `.accent-2`, `.good`, `.bad`, `.muted`. Put images in the project's `assets/` and use `<img src="../assets/name.png">`.
 
 ## Libraries and fonts
 
@@ -150,7 +150,32 @@ A scene can play a screen recording or other footage, if `script.yaml` sets `eng
 | `data-duration` | Seconds on screen |
 | `data-track-index` | Any whole number; give overlapping clips different numbers |
 
-Put the file in `generated_videos/<slug>/assets/`. Show only what the viewer may see: no customer data and no secrets in a recording. To move or fade a clip, wrap it in a `<div>` and animate the div with `EV`. Do not animate, play, pause, or seek the `<video>` itself: HyperFrames does that.
+Put the file in the project's `assets/`. Show only what the viewer may see: no customer data and no secrets in a recording. To move or fade a clip, wrap it in a `<div>` and animate the div with `EV`. Do not animate, play, pause, or seek the `<video>` itself: HyperFrames does that.
+
+## Page sections
+
+`make from-html` writes one scene per section of an HTML page ([from-html.md](from-html.md)). Each scene loads `/ev/page.js` and calls `EV.page`, which shows the section's capture inside `.safe` and moves a camera over it:
+
+```html
+<script src="/ev/ev.js"></script>
+<script src="/ev/page.js"></script>
+...
+<script>
+EV.page("s03", { bg: "rgb(255, 255, 255)", w: 832, parts: [/* from build/sections.json */] }).then(p => {
+  p.mark(p.parts[0], EV.at("s03-a", "cheapest"));  // a box around the table at the word "cheapest"
+  EV.ready();
+});
+</script>
+```
+
+- A section shorter than the frame sits in the middle and zooms in slowly. A taller one scrolls from its top to its bottom over all of the scene's beats.
+- `p.mark(box, start, end)` draws a box in the accent color. `box` is one of `p.parts` (a table, chart, code block, or sub-heading) or `[x, y, w, h]` in page px; `end` is optional.
+- Keep a mark inside the part of the section the camera shows at that time.
+- Lint skips the capture: it is a picture, not text. Check the contact sheet for small or cut-off text.
+
+## Check a scene fast
+
+`make stills SLUG=<slug> SCENE=<id>` renders only the frame before each next beat, lints it, and prints a contact sheet, in seconds. Use it while you draw; run `make preview` once all scenes pass.
 
 ## Patterns
 

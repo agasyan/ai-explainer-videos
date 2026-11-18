@@ -1,4 +1,6 @@
 # Local videos stay on your machine: their content can be confidential.
+projects/*
+!projects/.gitkeep
 generated_videos/*
 !generated_videos/.gitkeep
 # The old home of local videos: still ignored, so an unmoved video never reaches a commit.
