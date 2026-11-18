@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: center; gap: 24px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="big-number accent"><span class="num">0</span>%</div>
+    <div class="label meaning">of searches find the answer in the cache</div>
+  </div>
+</div>
+<script>
+// Pattern: big number (docs/visual-patterns.md). Beat a: the number counts up. Beat b: what it means.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.count(".num", 0, 62, at("a"), 1.2);
+EV.from(".meaning", { opacity: 0, y: 20, duration: 0.5 }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

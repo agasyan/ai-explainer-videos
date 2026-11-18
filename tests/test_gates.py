@@ -96,11 +96,11 @@ class GatesTest(unittest.TestCase):
     def test_preview_approval_approves_the_plan_with_it(self):
         self.narrated()
         self.previewed()
-        self.assertEqual({"plan": "ready", "preview": "ready"}, gates.status(self.video))
+        self.assertEqual({"intent": "none", "plan": "ready", "preview": "ready"}, gates.status(self.video))
         gates.approve(self.video, "preview")
         data = gates.read(self.video, "approved.json")
         self.assertEqual("preview", data["plan"]["with"])
-        self.assertEqual({"plan": "approved", "preview": "approved"}, gates.status(self.video))
+        self.assertEqual({"intent": "none", "plan": "approved", "preview": "approved"}, gates.status(self.video))
         (self.video / "script.yaml").write_text(SCRIPT.replace("Hello there.", "Hi."))
         self.assertEqual("changed", gates.status(self.video)["plan"])
 
@@ -121,6 +121,32 @@ class GatesTest(unittest.TestCase):
         data = gates.read(self.video, "approved.json")
         self.assertNotIn("with", data["plan"])
         self.assertNotIn("auto", data)
+
+
+class IntentTest(unittest.TestCase):
+    def test_nothing_is_voiced_or_drawn_before_the_intent_is_approved(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            video = Path(tmp) / "x"
+            video.mkdir()
+            (video / "script.yaml").write_text(SCRIPT)
+            gates.require_intent(video)  # a video made before the intent step
+            self.assertEqual("none", gates.status(video)["intent"])
+            (video / "intent.md").write_text("## Key message\n\n(fill in, or write none)\n")
+            self.assertEqual("waiting", gates.status(video)["intent"])
+            with self.assertRaisesRegex(SystemExit, "fill in intent.md"):
+                gates.approve(video, "intent")
+            with self.assertRaisesRegex(SystemExit, "intent is not approved"):
+                gates.require_intent(video)
+            (video / "intent.md").write_text("## Key message\n\nCaching cuts the wait.\n")
+            self.assertEqual("ready", gates.status(video)["intent"])
+            gates.approve(video, "intent")
+            gates.require_intent(video)
+            (video / "intent.md").write_text("## Key message\n\nSomething else.\n")
+            self.assertEqual("changed", gates.status(video)["intent"])
+            with self.assertRaises(SystemExit):
+                gates.require_intent(video)
+            with self.assertRaisesRegex(SystemExit, "intent is not approved"):  # no preview approval past a changed intent
+                gates.approve(video, "preview")
 
 
 class HashReadsWhatYamlReadsTest(unittest.TestCase):

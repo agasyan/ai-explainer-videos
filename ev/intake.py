@@ -27,15 +27,23 @@ MAX_FILE, MAX_TOTAL = 20 << 20, 200 << 20
 REF = re.compile(r"""(?:\b(?:src|href|poster)\s*=\s*["']([^"']+)["'])|(?:url\(\s*["']?([^"')]+)["']?\s*\))""", re.I)
 
 
+def plain_path(value):
+    """A path as typed or pasted: a file:// link (what a browser copies) becomes its plain path, %20 and all."""
+    import urllib.parse
+    value = str(value).strip()
+    if value.lower().startswith("file://"):
+        value = urllib.parse.unquote(urllib.parse.urlsplit(value).path)
+    return os.path.expanduser(value)
+
+
 def page_path(file, base=None):
     """The page as an absolute path. A relative path is read from `base` (the dashboard's first extra folder); with
     no base it is refused, because this tool's own folder is never where the page is. Refuses anything but a regular
     .html or .htm file of 20 MB or less."""
-    path = Path(os.path.expanduser(str(file).strip()))
+    path = Path(plain_path(file))
     if not path.is_absolute():
         if not base:
-            raise SystemExit(f"{file} is a relative path: give the full path (it starts with / or ~), or put its "
-                             f"folder in More options, Extra folders")
+            raise SystemExit(f"{file} is a relative path: give the full path (it starts with / or ~)")
         path = Path(os.path.expanduser(str(base))) / path
     path = Path(os.path.realpath(path))
     if path.suffix.lower() not in PAGES:

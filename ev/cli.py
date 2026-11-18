@@ -1,8 +1,9 @@
 """ev: the pipeline's command line. Runs inside Docker; use the Makefile.
 
-1 plan     script.yaml (brief + storyboard) and `narrate`     (a check here is optional)
-2 preview  scenes/*.html rendered at 720p with review frames   -> approve preview: the final video
-3 1080p    optional: the same files at 1080p, when verdict.json says it is worth it and you want it
+1 intent   intent.md: key message, viewers, story, look, keep and cut  -> approve intent
+2 plan     research, script.yaml, and `narrate`                     (no stop: the preview check covers it)
+3 preview  scenes/*.html rendered at 720p with review frames        -> approve preview: the final video
+4 1080p    optional: the same files at 1080p, when verdict.json says it is worth it and you want it
 `make from-html` starts step 1 from an HTML page: vendor and sections draft the script and the scenes.
 A new video is a project, projects/<YYYYMMDD>-<name>/ (ev/projects.py); commands take its name or its id.
 """
@@ -17,7 +18,7 @@ from importlib.metadata import version
 from pathlib import Path
 
 from ev import gates, projects
-from ev.common import MODELS, ROOT, SAMPLES, VENDOR, WHISPER, ffmpeg, run, seconds
+from ev.common import MODELS, ROOT, SAMPLES, VENDOR, WHISPER, copy_template, ffmpeg, run, seconds
 from ev.samples import copy_sources
 
 
@@ -54,21 +55,22 @@ def new(slug, title, sample=None):
     The work of this video (research, source notes, script, scenes, renders) stays in that folder."""
     if sample and (not projects.NAME.fullmatch(sample) or not (SAMPLES / sample / "script.yaml").is_file()):
         sys.exit(f"No sample named {sample!r} in videos/samples/")
-    pid = projects.new_id(slug)
-    folder = projects.PROJECTS / pid
+    made = projects.PROJECTS / slug  # the dashboard makes the folder first when it copies your files into sources/
+    if projects.DATED.fullmatch(slug) and made.is_dir() and not (made / "script.yaml").exists() and not sample:
+        pid, folder = slug, made
+    else:
+        pid = projects.new_id(slug)
+        folder = projects.PROJECTS / pid
     if sample:
         copy_sources(SAMPLES / sample, folder)
         print(f"DONE projects/{pid}/ from the sample {sample}. Use SLUG={pid} in each next command. "
               f"Next: make narrate SLUG={pid}")
         return
-    shutil.copytree(ROOT / "templates" / "video", folder)
-    for path in folder.rglob("*"):
-        if path.is_file():
-            value = json.dumps(title) if path.suffix == ".yaml" else html.escape(title)
-            path.write_text(path.read_text().replace("__TITLE__", value))
-    (folder / "sources").mkdir()
-    print(f"DONE projects/{pid}/: script.yaml, style.css, scenes/, sources/. Use SLUG={pid} in each next command. "
-          f"Next: research and read the source into sources/ and research.md, then fill in script.yaml (step 1).")
+    folder.mkdir(parents=True, exist_ok=True)
+    copy_template(folder, title)
+    print(f"DONE projects/{pid}/: intent.md, script.yaml, style.css, scenes/, sources/. Use SLUG={pid} in each next "
+          f"command. Next (step 1): read the sources into sources/, fill in intent.md, then make approve SLUG={pid} "
+          f"STEP=intent.")
 
 
 def verdict(video):
@@ -79,7 +81,9 @@ def verdict(video):
 
 def status(video):
     st, approvals = gates.status(video), gates.read(video, "approved.json")
-    notes = {"plan": {"ready": "ready: the preview check covers it (an early check is optional)",
+    notes = {"intent": {"ready": "READY for your check: intent.md", "changed": "CHANGED after approval: check again",
+                        "waiting": "waiting: Claude fills in intent.md", "none": "none (a video made before the intent step)"},
+             "plan": {"ready": "ready: the preview check covers it",
                       "changed": "CHANGED after approval: the preview check covers it", "waiting": "waiting"},
              "preview": {"ready": "READY for your check: this 720p video is the final",
                          "changed": "CHANGED after approval: check again", "waiting": "waiting"}}
@@ -90,9 +94,13 @@ def status(video):
                                    else notes[step][st[step]]))
     v = verdict(video)
     hd = f" Verdict: {v['1080p']}. {v['why']}" if v else ""
-    print("3 1080p    " + (f"optional: make video SLUG={video.name}.{hd}" if st["preview"] == "approved"
+    print("4 1080p    " + (f"optional: make video SLUG={video.name}.{hd}" if st["preview"] == "approved"
                            else "optional, after the preview check"))
-    if st["preview"] in ("ready", "changed"):
+    if st["intent"] in ("waiting",):
+        print(f"next: read the sources into sources/, fill in intent.md, then ask: make approve SLUG={video.name} STEP=intent")
+    elif st["intent"] in ("ready", "changed"):
+        print(f"next: check the intent. {gates.CHECK['intent']}\n      make approve SLUG={video.name} STEP=intent")
+    elif st["preview"] in ("ready", "changed"):
         print(f"next: check the preview. {gates.CHECK['preview']}\n      make approve SLUG={video.name} STEP=preview")
     elif st["preview"] == "approved":
         print(f"next: share the 720p video, or ask for 1080p.{hd}")
@@ -262,11 +270,12 @@ def main():
     p = sub.add_parser("sections", help="make from-html: capture the page's sections and draft the video")
     p.add_argument("video", type=video)
     p.add_argument("--format", choices=["landscape", "story", "both"])
-    for name in ("reference", "transcribe"):
-        p = sub.add_parser(name)
-        p.add_argument("file", type=Path)
-        if name == "transcribe":
-            p.add_argument("--model", default="base.en")
+    sub.add_parser("reference").add_argument("file", type=Path)
+    p = sub.add_parser("transcribe")
+    p.add_argument("file", type=Path, nargs="?")
+    p.add_argument("--sources", type=video, help="every recording in this project's sources/")
+    p.add_argument("--model", default="base.en")
+    sub.add_parser("voices", help="render voices/<voice>.m4a for the dashboard")
     sub.add_parser("doctor")
     sub.add_parser("test", help="run the unit tests in tests/")
     sub.add_parser("catalog", help="check moodboards and video formats").add_argument("--write", action="store_true")
@@ -299,8 +308,16 @@ def main():
     elif a.cmd == "reference":
         reference(a.file)
     elif a.cmd == "transcribe":
-        from ev.voice import transcribe
-        transcribe(a.file, a.model)
+        from ev.voice import transcribe, transcribe_sources
+        if a.sources:
+            transcribe_sources(a.sources, a.model)
+        elif a.file:
+            transcribe(a.file, a.model)
+        else:
+            sys.exit("Give FILE=<recording> or SLUG=<project id>")
+    elif a.cmd == "voices":
+        from ev.voice import voice_samples
+        voice_samples(ROOT / "voices")
     elif a.cmd == "catalog":
         catalog_command(a.write)
     elif a.cmd == "test":

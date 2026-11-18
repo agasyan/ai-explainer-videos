@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="ev-token" content="__TOKEN__">
+<meta name="ev-boot" content="__BOOT__">
 <title>Explainer Videos</title>
 <link rel="stylesheet" href="/vendor/basecoat-1.0.2/basecoat.min.css">
 <link rel="stylesheet" href="/app.css">
@@ -13,68 +14,83 @@
 <header class="topbar">
   <strong>Explainer videos</strong>
   <span class="muted" id="system-line">Checking Docker</span>
+  <button type="button" class="btn" id="new-open">+ New video</button>
 </header>
+<dialog id="new-dialog" class="newdlg" aria-labelledby="new-title">
+  <form id="new" class="stack">
+    <div class="dlg-head"><h2 id="new-title" class="card-title">New video</h2>
+      <button type="button" class="btn" data-variant="ghost" id="new-close" aria-label="Close">Close</button></div>
+    <fieldset class="group">
+      <legend>1 Sources</legend>
+      <p class="muted">What Claude reads. It rebuilds the story in its own words and pictures: a page is a source, not the video.</p>
+      <div id="sources" class="stack"></div>
+      <div><button type="button" class="btn" data-variant="outline" id="add-source">Add another source</button></div>
+      <p class="muted" id="sources-note" aria-live="polite"></p>
+    </fieldset>
+    <fieldset class="group">
+      <legend>2 What you want</legend>
+      <div class="field"><label for="brief">Brief (optional): why this video, who watches, what to cover, what is known already</label>
+        <textarea id="brief" class="textarea" rows="7" maxlength="6000" placeholder="For the support leads and the head of product: explain why we move ticket triage to one shared queue. Cover how a ticket flows today, what changes, and the risks. If the full move is too big for now, cover the smaller first step. End with next steps and owners.&#10;&#10;Known already: ..."></textarea>
+        <p class="muted"><span id="brief-count">0</span> of 6000 characters. Claude builds the intent from it; with no brief, it guesses from the sources.</p></div>
+      <div class="pair">
+        <div class="field"><span class="flabel" id="length-label">Length</span>
+          <div class="seg" role="radiogroup" aria-labelledby="length-label">
+            <label><input type="radio" name="length" value="under 1 min"><span>&lt; 1 min</span></label>
+            <label><input type="radio" name="length" value="1-3 min" checked><span>1-3 min</span></label>
+            <label><input type="radio" name="length" value="3-5 min"><span>3-5 min</span></label></div></div>
+        <div class="field"><span class="flabel" id="aspect-label">Aspect</span>
+          <div class="seg" role="radiogroup" aria-labelledby="aspect-label">
+            <label><input type="radio" name="format" value="landscape" checked><span>16:9</span></label>
+            <label><input type="radio" name="format" value="story"><span>9:16</span></label>
+            <label><input type="radio" name="format" value="both"><span>Both</span></label></div></div>
+      </div>
+    </fieldset>
+    <fieldset class="group">
+      <legend>3 Look and sound</legend>
+      <div class="field"><span class="flabel" id="vformat-label">Story structure</span>
+        <div class="cards" role="radiogroup" aria-labelledby="vformat-label" id="vformat"></div></div>
+      <div class="field"><span class="flabel" id="mood-label">Look</span>
+        <div class="cards" role="radiogroup" aria-labelledby="mood-label" id="mood"></div></div>
+      <div class="field"><span class="flabel" id="voice-label">Voice</span>
+        <div class="voices" role="radiogroup" aria-labelledby="voice-label" id="voice"></div></div>
+    </fieldset>
+    <details class="fold" id="more">
+      <summary>Advanced: name, model, effort, web research, 3D</summary>
+      <div class="stack">
+        <div class="pair">
+          <div class="field"><label for="model">Model</label>
+            <select id="model" class="select"><option value="">Default: your Claude Code setting</option></select></div>
+          <div class="field"><label for="effort">Effort</label>
+            <select id="effort" class="select"><option value="">Default: your Claude Code setting</option></select></div>
+        </div>
+        <div class="field">
+          <label for="name-mode">Project name: the folder is projects/&lt;today&gt;-&lt;name&gt;</label>
+          <select id="name-mode" class="select"><option value="auto" selected>Auto: Claude names it from the sources</option><option value="manual">Manual</option></select>
+          <input id="slug" class="input" maxlength="60" pattern="[a-z0-9][a-z0-9-]*" placeholder="how-dns-works" hidden aria-label="Project name">
+        </div>
+        <label class="check"><input type="checkbox" id="web" class="input" checked>
+          <span>Research the web: facts get 2 sources each. Off: Claude uses only your sources. Off by default when a source is an HTML page.</span></label>
+        <label class="check"><input type="checkbox" id="three" class="input" checked>
+          <span>Allow 3D (three.js) where it explains better, as in an infographic.</span></label>
+      </div>
+    </details>
+    <p class="muted" id="start-reason" hidden></p>
+    <div id="claude-cmd" class="stack" hidden>
+      <p class="muted">Copied. Paste it in a terminal: it starts Claude Code in this folder with the same choices.</p>
+      <pre id="claude-cmd-text"></pre>
+    </div>
+    <div class="dlg-foot">
+      <button type="button" class="linkbtn" id="to-claude">Copy as Claude Code prompt</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn" data-variant="outline" id="new-cancel">Cancel</button>
+      <button class="btn" id="start">Start video</button>
+    </div>
+  </form>
+</dialog>
 <div class="alert banner" id="stale" data-variant="destructive" hidden><section id="stale-text">The dashboard's code changed after it started.
   Stop it (Ctrl+C in its terminal) and run make dashboard again, then reload this page.</section></div>
 <main class="layout">
   <div class="stack">
-    <section class="card">
-      <header><h2 class="card-title">New video</h2><p class="card-description">A topic, PR, repo path, file, or an HTML page. Start as many as you like: each gets its own card.</p></header>
-      <section>
-        <form id="new" class="stack">
-          <div class="field">
-            <label for="source">Source</label>
-            <textarea id="source" class="textarea" rows="3" required placeholder="PR #482&#10;how DNS works&#10;~/reports/q3-review.html"></textarea>
-            <p class="muted" id="html-note" hidden>An HTML page: the dashboard copies it into the video folder, and Claude narrates its sections in order. A relative path is read from the Extra folder below.</p>
-          </div>
-          <div class="field">
-            <label for="name-mode">Project name: the folder is projects/&lt;today&gt;-&lt;name&gt;</label>
-            <select id="name-mode" class="select"><option value="auto" selected>Auto: Claude names it from the source</option><option value="manual">Manual</option></select>
-            <input id="slug" class="input" maxlength="60" pattern="[a-z0-9][a-z0-9-]*" placeholder="how-dns-works" hidden>
-          </div>
-          <div class="pair">
-            <div class="field"><label for="vformat">Video format</label>
-              <select id="vformat" class="select"><option value="recommend">Recommend for me</option></select></div>
-            <div class="field"><label for="mood">Moodboard</label>
-              <select id="mood" class="select"><option value="recommend">Recommend for me</option></select></div>
-          </div>
-          <p class="muted" id="pick-note">Claude recommends one of each, with 2 alternatives, in the storyboard.</p>
-          <img id="mood-swatch" class="swatch" alt="" hidden>
-          <div class="pair">
-            <div class="field"><label for="format">Aspect</label>
-              <select id="format" class="select"><option value="landscape">Landscape 16:9</option><option value="story">Story 9:16</option><option value="both">Both</option></select></div>
-            <div class="field"><label for="length">Length (one video)</label>
-              <select id="length" class="select"><option value="under 1 min">&lt; 1 min</option><option value="1-3 min" selected>1-3 min</option><option value="3-5 min">3-5 min</option></select></div>
-          </div>
-          <div class="field"><label for="voice">Voice</label>
-            <select id="voice" class="select"><option value="af_heart">US, female</option><option value="am_michael">US, male</option><option value="bf_emma">UK, female</option><option value="bm_george">UK, male</option></select></div>
-          <details class="fold" id="more">
-            <summary>More options: sources and checks</summary>
-            <div class="stack">
-              <div class="field">
-                <label for="dir">Extra folders Claude may read (optional, one per line)</label>
-                <textarea id="dir" class="textarea" rows="2" placeholder="~/code/checkout-service&#10;~/notes/q3"></textarea>
-              </div>
-              <label class="check"><input type="checkbox" id="web" class="input" checked>
-                <span>Research the web: facts get 2 sources each, in research.md. Off: Claude uses only the source and the folders above. Off by default for an HTML page.</span></label>
-              <label class="check"><input type="checkbox" id="three" class="input" checked>
-                <span>Allow 3D where it explains better (three.js), in 2 scenes at most.</span></label>
-              <label class="check"><input type="checkbox" id="plan-check" class="input">
-                <span>Stop after the plan, so I can check the script before the scenes. By default Claude runs to the 720p video, and you check both there.</span></label>
-            </div>
-          </details>
-          <div class="buttons">
-            <button class="btn" id="start">Start</button>
-            <button type="button" class="btn" data-variant="outline" id="to-claude">Open in Claude Code</button>
-          </div>
-          <p class="muted" id="start-reason" hidden></p>
-          <div id="claude-cmd" class="stack" hidden>
-            <p class="muted">Copied. Paste it in a terminal: it starts Claude Code in this folder with the same choices, and Claude Code asks you before each step it needs.</p>
-            <pre id="claude-cmd-text"></pre>
-          </div>
-        </form>
-      </section>
-    </section>
     <section class="card">
       <header><h2 class="card-title">Samples</h2><p class="card-description">Finished examples: start a copy and change it</p></header>
       <section><div class="list" id="samples"><div class="empty">Loading samples</div></div></section>
@@ -123,8 +139,13 @@
           <p class="muted session" id="session" hidden></p>
           <div class="agents" id="agents"></div>
           <div class="logbar"><span class="muted" id="log-filter-label">All agents</span>
+            <div class="seg" role="radiogroup" aria-label="Show in the log">
+              <label><input type="radio" name="log-mode" value="all" checked><span>Everything</span></label>
+              <label><input type="radio" name="log-mode" value="said"><span>What Claude says</span></label>
+              <label><input type="radio" name="log-mode" value="problems"><span>Problems</span></label></div>
             <button type="button" class="btn" data-variant="ghost" id="log-all" hidden>Show all agents</button></div>
           <div id="log"></div>
+          <button type="button" class="btn" data-variant="secondary" id="log-new" hidden></button>
         </div>
       </section>
     </section>

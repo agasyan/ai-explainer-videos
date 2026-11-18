@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: center; }
+.bar { transform-box: fill-box; transform-origin: 50% 100%; }
+svg text { font: 600 38px var(--font); fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <svg viewBox="0 0 1300 640" width="1300" height="640">
+      <line x1="60" y1="540" x2="1240" y2="540" stroke="var(--line)" stroke-width="4"/>
+      <rect class="bar lose" x="160" y="300" width="240" height="240" fill="var(--muted)"/>
+      <rect class="bar win" x="530" y="140" width="240" height="400" fill="var(--accent)"/>
+      <rect class="bar lose" x="900" y="380" width="240" height="160" fill="var(--muted)"/>
+      <text x="280" y="280" text-anchor="middle">240</text>
+      <text x="650" y="120" text-anchor="middle">400</text>
+      <text x="1020" y="360" text-anchor="middle">160</text>
+      <text x="280" y="600" text-anchor="middle">Option A</text>
+      <text x="650" y="600" text-anchor="middle">Option B</text>
+      <text x="1020" y="600" text-anchor="middle">Option C</text>
+    </svg>
+  </div>
+</div>
+<script>
+// Pattern: option bars (docs/visual-patterns.md). Beat a: the options grow on one axis. Beat b: the losing options dim.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".bar", { scaleY: 0, duration: 0.8, ease: "power2.out" }, at("a"));  // all at once: one shared axis
+EV.to(".lose", { opacity: 0.3, duration: 0.5 }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

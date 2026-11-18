@@ -10,17 +10,20 @@ Every command runs in Docker, except `make dashboard`. `SLUG=` takes a project i
 | `make doctor` | Checks every tool; sends "testing one two three" through the voice and back |
 | `make test` | Runs the unit tests in `tests/` inside the image |
 | `make new SLUG=dns TITLE="How DNS works"` | Starts a project, `projects/<YYYYMMDD>-dns/` (`-2` for a second one that day), from `templates/video/`, with an empty `sources/`; add `SAMPLE=<name>` to start from `videos/samples/<name>/`. It prints the project id |
-| `make from-html SLUG=q3 FILE=~/reports/q3.html` | Starts a project (`projects/<YYYYMMDD>-q3/`), copies an HTML page and its CDN files, captures one scene per section, and drafts `script.yaml` and `scenes/` ([from-html.md](from-html.md)). With a project id and no `FILE=`, it captures that project's page again |
+| `make from-html SLUG=q3 FILE=~/reports/q3.html` | Starts a project (`projects/<YYYYMMDD>-q3/`) from an HTML page: copies it and its CDN files, writes its text to `sources/page.md`, and makes an evidence scene per section, `scenes/page-<id>.html` ([from-html.md](from-html.md)). With a project id and no `FILE=`, it captures that project's page again |
 | `make sample SLUG=dns` | Maintainers, on the host: copy an approved video's sources and frames to `videos/samples/dns/` to commit |
 | `make narrate SLUG=dns` | Step 1: makes the voice, writes `storyboard.md` and `build/narration.wav`, prints `CHECK` lines |
 | `make storyboard SLUG=dns` | Writes `storyboard.md` again from the current narration and prints it as JSON |
 | `make status SLUG=dns` | Shows the steps and the next action |
-| `make approve SLUG=dns STEP=preview` | Approves the preview, the final video, after you check it (`STEP=plan` for an optional early plan check) |
+| `make approve SLUG=<id> STEP=intent` | Approves the intent after you check it: the voice and the scenes may then run |
+| `make approve SLUG=<id> STEP=preview` | Approves the preview, the final video, after you check it |
 | `make stills SLUG=dns SCENE=hook` | The frame before each next beat, linted, with a contact sheet: a check in seconds while you draw. No MP4 |
 | `make preview SLUG=dns` | Step 2: the 720p video (the final), review frames, lint, and the 1080p verdict |
 | `make video SLUG=dns` | Optional 1080p. Needs an approved preview |
 | `make reference FILE=ref.mp4` | Words per minute, cuts per minute, transcript, and a contact sheet of a reference video |
 | `make transcribe FILE=talk.m4a` | `talk.txt` and `talk.srt` next to the file. `MODEL=small` for other languages (downloaded once to `generated_videos/.models/`) |
+| `make transcribe SLUG=<id>` | The same for every recording in the project's `sources/` that has no transcript yet |
+| `make voices` | Maintainers: renders `voices/<voice>.m4a`, the samples the dashboard's Play buttons use |
 | `make dashboard` | The web page ([dashboard.md](dashboard.md)) |
 | `make catalog` | Maintainers: checks every moodboard and video format, renders `swatch.jpg`, writes both `catalog.json` |
 | `make shell` | A shell inside the image |
@@ -60,12 +63,14 @@ A video's folder is `projects/<YYYYMMDD>-<name>/`, or `generated_videos/<slug>/`
 
 | Path | What | Back up |
 |------|------|-----------|
+| `intent.md` | The key message, viewers, story, look, keep and cut: your first check | yes |
 | `script.yaml` | Brief, narration, storyboard | yes |
 | `assets/page/` | From `make from-html`: the page (`index.html`), its local and CDN files, and `shots/<format>/<id>.png` | yes |
+| `scenes/page-<id>.html` | From `make from-html`: an evidence scene per page section ([scenes.md](scenes.md#page-sections)) | yes |
 | `style.css`, `scenes/`, `assets/` | The animation | yes |
 | `approved.json` | Approvals | yes |
 | `research.md` | Topics only: each claim with its sources ([writing.md](writing.md#research-every-fact-has-a-source)) | yes |
-| `sources/` | What the agent read: a copy or notes of each file, page, or diff, and `index.md` with where each came from (path, repo and commit, or URL) | yes |
+| `sources/` | What the agent read: notes and copies (`files/`, `recordings/` with transcripts, `page.md` for an HTML page), and `index.md` with where each came from (path, repo and commit, or URL) | yes |
 | `storyboard.md` | Made by `make narrate` from `script.yaml`: picks, video direction, one row per beat. Never edit it | no |
 | `frames/<format>/<scene>/<beat>.jpg` | One frame per beat from the last full 720p render, shown in `storyboard.md` | no |
 | `build/narration.wav` | All beats in a row | no |

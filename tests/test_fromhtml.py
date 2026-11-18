@@ -10,7 +10,7 @@ from unittest import mock
 from ev import fromhtml, intake
 from ev import vendor as cdn
 
-PAGE = """<!doctype html><html><head><title>Partner sort</title>
+PAGE = """<!doctype html><html><head><title>Cache report</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lib@1.0.0/lib.min.css" integrity="sha384-x" crossorigin="anonymous">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <script src="https://cdn.jsdelivr.net/npm/tool@2.0.0/dist/tool.min.js"></script>
@@ -105,6 +105,11 @@ class IntakeTest(unittest.TestCase):
         self.assertEqual(self.src.resolve() / "page.html", src)
         with self.assertRaisesRegex(SystemExit, "give the full path"):  # never read from this tool's own folder
             self.copy("rep", "ask/report/page.html")
+        spaced = self.root / "my reports"
+        spaced.mkdir()
+        (spaced / "page.html").write_text("<p>x</p>")
+        _, src, _, _ = self.copy("rep", (spaced / "page.html").resolve().as_uri())  # file:///.../my%20reports/page.html
+        self.assertEqual(spaced.resolve() / "page.html", src)
 
 
 class VendorTest(unittest.TestCase):
@@ -161,7 +166,9 @@ width:900px;background:#fff} .tall{height:2600px} nav{position:fixed;top:0;left:
 <body><nav>menu</nav><header><h1>Demo page</h1><p>Intro words.</p></header>
 <section><h2>First</h2><p class="in">One.</p><table style="width:400px"><tr><td>a</td><td>b</td></tr></table></section>
 <section class="tall"><h2>Second</h2><pre>code here</pre></section>
-<section><h2>Third</h2><p>Three.</p></section></body></html>"""
+<section><h2>Third</h2><p>Three.</p></section>
+<div role="tabpanel" aria-label="Knowledge" style="display:none"><h3>Knowledge</h3><p>""" + "Hidden fact. " * 30 + """</p></div>
+</body></html>"""
 
 
 class SectionsTest(unittest.TestCase):
@@ -189,20 +196,21 @@ class SectionsTest(unittest.TestCase):
             self.assertEqual((found[2]["w"] * 2, found[2]["h"] * 2), tall.size)  # captured at 2x
             first = Image.open(video / found[1]["shot"]).convert("RGB")
             self.assertNotEqual((255, 0, 0), first.getpixel((5, 5)))  # the fixed nav is hidden
-            spec = load(video)
-            self.assertEqual(["s00", "s01", "s02", "s03"], [s["id"] for s in spec["parts"][0]["scenes"]])
-            self.assertTrue(all(s["treatment"] == "page" for s in spec["parts"][0]["scenes"]))
-            scene = (video / "scenes" / "s02.html").read_text()
+            spec = load(video)  # a normal project: the template's script, not a page tour
+            self.assertEqual(["hook", "recap"], [s["id"] for s in spec["parts"][0]["scenes"]])
+            self.assertTrue((video / "intent.md").is_file())
+            page = (video / "sources" / "page.md").read_text()
+            self.assertIn("## s01: First", page)
+            self.assertIn("One.", page)
+            self.assertIn("### Knowledge", page)  # a closed tab: no capture shows it, page.md keeps it
+            self.assertIn("Hidden fact.", page)
+            self.assertIn("`page.md`", (video / "sources" / "index.md").read_text())
+            scene = (video / "scenes" / "page-s02.html").read_text()  # evidence scenes, ready to use
             self.assertIn('EV.page("s02", {"bg": "rgb(255, 255, 255)", "w": 980,', scene)  # 900 px + 2 x 40 px padding
             self.assertIn('"tag": "pre"', scene)
-            narration = {"gap": 0.35, "scenes": {s["id"]: [{"id": f"{s['id']}-a", "text": "x", "duration": 1, "words": [], "match": 1}]
-                                                for s in spec["parts"][0]["scenes"]}}
-            from ev import catalog
-            mood = catalog.moodboard("clean")
-            self.assertFalse([c for c in build(spec, narration, mood)["checks"] if "treatment" in c])
-            (video / "script.yaml").write_text((video / "script.yaml").read_text().replace("(fill in) narration", "Kept"))
+            (video / "script.yaml").write_text((video / "script.yaml").read_text().replace("hook", "kept-hook"))
             fromhtml.sections(video)  # again: the stills are new, the script stays
-            self.assertIn("Kept", (video / "script.yaml").read_text())
+            self.assertIn("kept-hook", (video / "script.yaml").read_text())
 
 
 class VerdictTest(unittest.TestCase):

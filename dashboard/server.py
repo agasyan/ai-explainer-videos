@@ -34,9 +34,10 @@ VIDEOS = ROOT / "generated_videos"    # videos made before projects
 SAMPLES = ROOT / "videos" / "samples"
 PORT = int(os.environ.get("PORT", "8787"))
 TOKEN = secrets.token_urlsafe(24)
+BOOT = secrets.token_hex(4)  # this run's id, not a secret: a page from an earlier run sees it differ and asks for a reload
 HOSTS = {f"127.0.0.1:{PORT}", f"localhost:{PORT}"}
 SERVABLE = ["*/out/*.mp4", "*/out/*.vtt", "*/build/narration.wav", "*/build/review/*.png", "*/frames/*/*/*.jpg"]
-TYPES = {".mp4": "video/mp4", ".vtt": "text/vtt; charset=utf-8", ".wav": "audio/wav", ".png": "image/png",
+TYPES = {".m4a": "audio/mp4", ".mp4": "video/mp4", ".vtt": "text/vtt; charset=utf-8", ".wav": "audio/wav", ".png": "image/png",
          ".jpg": "image/jpeg"}
 CATALOG = {"moodboards": ROOT / "moodboards", "video_formats": ROOT / "video-formats"}
 SLUG = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -47,7 +48,7 @@ STATIC = {"/app.js": ("app.js", "text/javascript; charset=utf-8"), "/app.css": (
 # Same-origin files only, no inline script: text that slips into the page cannot run or reach another site.
 CSP = ("default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' data:; media-src 'self'; "
        "connect-src 'self'; font-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'")
-WAITING = re.compile(r"WAITING FOR APPROVAL: ([a-z0-9-]+) (plan|preview)")
+WAITING = re.compile(r"WAITING FOR APPROVAL: ([a-z0-9-]+) (intent|plan|preview)")
 # A Claude session id is a UUID. Anything else is refused wherever an id enters (the stream, saved runs, dashboard.json):
 # `--resume` takes an optional value, so an "id" such as --dangerously-skip-permissions would parse as its own flag.
 SESSION = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
@@ -66,11 +67,11 @@ def stale():
     return any(not p.exists() or p.stat().st_mtime != t for p, t in CODE.items())
 # What a job may write in its video folder, by exact name. Anything else (approved.json, build/, a Makefile, in any
 # letter case) matches no rule and is refused: a disk that ignores case cannot widen an allowlist.
-SOURCES = ["script.yaml", "research.md", "sources/**", "style.css", "scenes/*.html", "assets/**"]
+SOURCES = ["intent.md", "script.yaml", "research.md", "sources/**", "style.css", "scenes/*.html", "assets/**"]
 
 
 # The make targets a job may run, always for its own slug only (the page fixes the slug when the job starts).
-JOB_MAKE = ("new", "from-html", "narrate", "storyboard", "status", "stills", "preview", "video")
+JOB_MAKE = ("new", "from-html", "transcribe", "narrate", "storyboard", "status", "stills", "preview", "video")
 
 
 def folder(slug):
@@ -86,6 +87,142 @@ def where(slug):
 def every_video():
     """The folders of all videos, in both places."""
     return [d for root in (PROJECTS, VIDEOS) if root.is_dir() for d in sorted(root.glob("*")) if d.is_dir()]
+
+
+KINDS = {"topic": "Topic", "html": "HTML page", "pr": "PR", "folder": "Repo or folder", "file": "File",
+         "recording": "Recording", "link": "Web link"}
+ROLES = {"main": "Main story", "context": "Context", "facts": "Facts and numbers", "look": "Look reference"}
+MEDIA = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac", ".mp4", ".mov", ".mkv", ".webm"}
+PR = re.compile(r"https://github\.com/[\w.-]+/[\w.-]+/pull/\d+(/\S*)?|([\w.-]+/[\w.-]+)?#\d+")
+
+
+def check_sources(given, web):
+    """The New video dialog's sources, checked: [{"kind", "role", "value", "path"}]. Paths must be absolute or start
+    with ~; each must exist and be the kind it claims. Raises SystemExit with a message for the dialog."""
+    if not isinstance(given, list) or not given:
+        raise SystemExit("Add a source first.")
+    if len(given) > 12:
+        raise SystemExit("12 sources at most.")
+    out = []
+    for n, x in enumerate(given, 1):
+        kind, role, value = (str((x or {}).get(k, "")).strip() for k in ("kind", "role", "value"))
+        if kind not in KINDS or role not in ROLES or not value or len(value) > 500:
+            raise SystemExit(f"Source {n}: choose a kind and a role, and fill it in.")
+        item = {"kind": kind, "role": role, "value": value, "path": None}
+        if kind == "html":
+            item["path"] = intake.page_path(value)
+        elif kind in ("folder", "file", "recording"):
+            path = Path(intake.plain_path(value))
+            if not path.is_absolute():
+                raise SystemExit(f"Source {n}: give the full path (it starts with / or ~).")
+            path = Path(os.path.realpath(path))
+            if kind == "folder" and not path.is_dir():
+                raise SystemExit(f"Source {n}: no folder at {path}")
+            if kind != "folder" and not path.is_file():
+                raise SystemExit(f"Source {n}: no file at {path}")
+            if kind == "recording" and path.suffix.lower() not in MEDIA:
+                raise SystemExit(f"Source {n}: a recording is an audio or video file ({', '.join(sorted(MEDIA))}).")
+            if kind == "file" and path.stat().st_size > intake.MAX_FILE:
+                raise SystemExit(f"Source {n}: {path.name} is over 20 MB.")
+            item["path"] = path
+        elif kind == "pr" and not PR.fullmatch(value):
+            raise SystemExit(f"Source {n}: a PR is a link such as https://github.com/org/repo/pull/482, or org/repo#482.")
+        elif kind == "link" and not re.fullmatch(r"https?://\S+", value):
+            raise SystemExit(f"Source {n}: a web link starts with https://")
+        elif kind == "link" and not web:
+            raise SystemExit(f"Source {n}: a web link needs Research the web on (Advanced).")
+        out.append(item)
+    if sum(x["kind"] == "html" for x in out) > 1:
+        raise SystemExit("One HTML page per video: keep one, and add the others as files.")
+    return out
+
+
+def prepare_sources(slug, items):
+    """Copy what the job needs into its project before it starts (it reads nothing outside this repo but its
+    folders): the HTML page (ev/intake.py), files to sources/files/, recordings to sources/recordings/.
+    Returns (the request's sources text, read-only folders, the first command for the job)."""
+    lines, dirs, start, origins = [], [], f"make new SLUG={slug}", []
+    home = PROJECTS / slug
+    for n, x in enumerate(items, 1):
+        label = f"{n}. {KINDS[x['kind']]}, {ROLES[x['role']]}"
+        if x["kind"] == "html":
+            _, src, copied, _ = intake.copy(slug, str(x["path"]), root=PROJECTS)
+            lines.append(f"{label}: the page {src.name}, copied with {len(copied)} linked files to "
+                         f"projects/{slug}/assets/page/")
+            start = f"make from-html SLUG={slug}"
+            origins.append({"kind": "html", "path": str(src), "stamp": stamp(src)})
+        elif x["kind"] in ("file", "recording"):
+            folder = home / "sources" / ("files" if x["kind"] == "file" else "recordings")
+            folder.mkdir(parents=True, exist_ok=True)
+            intake.copy_file(x["path"], folder / x["path"].name)
+            origins.append({"kind": x["kind"], "path": str(x["path"]), "stamp": stamp(x["path"]),
+                            "dest": f"sources/{folder.name}/{x['path'].name}"})
+            lines.append(f"{label}: {x['path'].name}, copied to projects/{slug}/sources/{folder.name}/"
+                         + (f" (run make transcribe SLUG={slug})" if x["kind"] == "recording" else ""))
+        elif x["kind"] == "folder":
+            dirs.append(str(x["path"]))
+            lines.append(f"{label}: {x['path']} (read only; write notes of what you use to sources/)")
+        else:
+            lines.append(f"{label}: {x['value']}")
+    if origins:  # where each copy came from, so a later step can copy a changed original again (refresh_sources)
+        (home / "build").mkdir(parents=True, exist_ok=True)
+        (home / "build" / "sources.json").write_text(json.dumps(origins, indent=1))
+    return " Sources (kind, role): " + "; ".join(lines) + ".", dirs, start
+
+
+def stamp(path):
+    st = Path(path).stat()
+    return [st.st_mtime_ns, st.st_size]
+
+
+def refresh_sources(slug):
+    """Copy again each source whose original changed since the last copy (an HTML page you edited after Start).
+    Returns a note for the job's request, or "". build/sources.json holds the originals; a job cannot edit build/."""
+    home = folder(slug)
+    record = home / "build" / "sources.json" if home else None
+    try:
+        origins = json.loads(record.read_text()) if record else []
+    except (OSError, ValueError):
+        return ""
+    changed, failed = [], []
+    for o in origins if isinstance(origins, list) else []:
+        path = Path(str(o.get("path", "")))
+        try:
+            if not path.is_file() or stamp(path) == o.get("stamp"):
+                continue
+            if o.get("kind") == "html":
+                intake.copy(slug, str(path), root=PROJECTS)
+            elif o.get("kind") in ("file", "recording") and re.fullmatch(r"sources/(files|recordings)/[^/]+", str(o.get("dest"))):
+                intake.copy_file(path, home / o["dest"])
+            else:
+                continue
+            o["stamp"] = stamp(path)
+            changed.append(o)
+        except (OSError, SystemExit) as e:
+            failed.append(f"{path.name} ({e})")
+    if changed:
+        record.write_text(json.dumps(origins, indent=1))
+    note = ""
+    if changed:
+        note += " Sources changed on disk since the last step, and are copied again: " + ", ".join(
+            "the HTML page" if o["kind"] == "html" else o["dest"] for o in changed) + "."
+        if any(o["kind"] == "html" for o in changed):
+            note += (f" Run make from-html SLUG={slug} first: it captures the page again and rewrites sources/page.md, "
+                     f"and keeps intent.md, script.yaml, and scenes/.")
+    if failed:
+        note += " These sources changed but could not be copied again: " + ", ".join(failed) + "."
+    return note
+
+
+def write_brief(home, brief):
+    """sources/brief.md: the New video dialog's brief, in the requester's words, and a line in sources/index.md."""
+    (home / "sources").mkdir(parents=True, exist_ok=True)
+    (home / "sources" / "brief.md").write_text("# Brief\n\nFrom the person who asked for this video, in their words "
+                                               "(the dashboard's New video dialog).\n\n" + brief + "\n")
+    index = home / "sources" / "index.md"
+    text = index.read_text() if index.is_file() else "# Sources\n\nWhat this video read, and where each came from.\n\n"
+    if "`brief.md`" not in text:
+        index.write_text(text.rstrip("\n") + "\n- `brief.md`: the requester's brief: who watches, why, what to cover\n")
 
 
 def plain_name(text):
@@ -131,9 +268,37 @@ def bound(slug):
 
 
 WEB = ("WebSearch", "WebFetch")
+MODELS_FALLBACK, EFFORTS_FALLBACK = ("opus", "sonnet"), ("low", "medium", "high", "xhigh", "max")
+CHOICE = re.compile(r"[a-z0-9][a-z0-9.\[\]-]{0,60}")  # a model alias or name, an effort level: never a flag
 
 
-def command(prompt, session=None, read_dir="", slug=None, web=True):
+def claude_choices(help_text=None):
+    """The model aliases and effort levels this Claude Code takes, read from `claude --help` (its --model and
+    --effort lines), so a new alias or level shows up without a change here. Fixed lists when the text has none."""
+    if help_text is None:
+        if not TOOLS["claude"]:
+            return {"models": list(MODELS_FALLBACK), "efforts": list(EFFORTS_FALLBACK)}
+        r = probe(["claude", "--help"], timeout=20)
+        help_text = r[1] if r else ""
+    flat = " ".join(help_text.split())
+    model = re.search(r"--model <model>(.{0,300}?)(?= --[a-z])", flat)
+    effort = re.search(r"--effort <level>.{0,120}?\(([a-z, ]+)\)", flat)
+    models = [m for m in re.findall(r"'([a-z][a-z0-9.-]*)'", model[1] if model else "") if CHOICE.fullmatch(m)]
+    efforts = [e.strip() for e in (effort[1] if effort else "").split(",") if CHOICE.fullmatch(e.strip())]
+    return {"models": list(dict.fromkeys(models)) or list(MODELS_FALLBACK), "efforts": efforts or list(EFFORTS_FALLBACK)}
+
+
+CHOICES = {}
+
+
+def choices():
+    """claude_choices(), read once per run."""
+    if not CHOICES:
+        CHOICES.update(claude_choices())
+    return CHOICES
+
+
+def command(prompt, session=None, read_dir="", slug=None, web=True, model="", effort=""):
     """The claude command for a job. An allowlist, not a denylist: anything not listed is refused without a prompt.
     A job works on one video, its slug: it may not run make for, read, or edit any other video's folder.
     read_dir: one folder or a list of folders it may read. web=False denies web search and fetch."""
@@ -146,7 +311,9 @@ def command(prompt, session=None, read_dir="", slug=None, web=True):
              + [f"Read(/{d}/**)" for d in dirs])
     prompt = f" {prompt}" if prompt.startswith("-") else prompt  # a prompt is never read as a flag
     session = session_id(session)
-    cmd = ["claude", "-p", prompt, "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
+    picked = [*(["--model", model] if model and CHOICE.fullmatch(model) else []),
+              *(["--effort", effort] if effort and CHOICE.fullmatch(effort) else [])]
+    cmd = ["claude", "-p", prompt, *picked, "--output-format", "stream-json", "--verbose", "--permission-mode", "dontAsk",
            "--allowedTools", *allow, "--disallowedTools", *rules["deny"], *rules["ask"], *others(slug),
            "Bash(*SLUG*SLUG*)",  # no one to ask; and no second SLUG= that would switch the video
            "Bash(*FILE=*)",  # make from-html FILE= copies a file from your disk: only the New video form does that
@@ -188,7 +355,8 @@ def system_state():
              "image": "unknown", "doctor": LAST["doctor"], "claude": "missing",
              "three": (LAST["doctor"] or {}).get("three"),  # None until doctor runs; False turns the 3D box off
              "busy": any(not j["done"] for j in JOBS.values()),
-             "root": str(ROOT)}  # for the Open in Claude Code command: cd here first
+             "root": str(ROOT),  # for the Open in Claude Code command: cd here first
+             **({"claude_models": choices()["models"], "claude_efforts": choices()["efforts"]} if TOOLS["claude"] else {})}
     if TOOLS["docker"]:
         r = probe(["docker", "info", "--format", "{{.ServerVersion}}"])
         state["docker"] = "not responding" if r is None else "running" if r[0] == 0 else "stopped"
@@ -250,7 +418,8 @@ def others(slug):
 # ---------- run history on disk: <video folder>/build/jobs/<id>.json (state) and .jsonl (log) ----------
 
 JOB_ID = re.compile(r"[0-9a-f]{8}")
-META = ("id", "prompt", "session", "done", "waiting", "system", "slug", "started", "ended", "agents", "now", "code", "web")
+META = ("id", "prompt", "session", "done", "waiting", "system", "slug", "started", "ended", "agents", "now", "code", "web",
+        "model", "effort", "label")
 
 
 def persist(job, final=False):
@@ -299,6 +468,8 @@ def load_jobs(keep=20):
             job = {k: meta.get(k) for k in META} | {"events": events, "tasks": {}, "saved": len(events), "saved_at": time.time()}
             job["session"] = session_id(job["session"])  # a saved file is data: never pass its text to claude unchecked
             job["web"] = job["web"] if isinstance(job["web"], bool) else None  # a run saved before this choice: unknown
+            job["model"], job["effort"] = (x if isinstance(x, str) and CHOICE.fullmatch(x) else "" for x in (job["model"], job["effort"]))
+            job["label"] = job["label"] if isinstance(job["label"], str) and len(job["label"]) <= 30 else ""
             job["agents"] = job["agents"] if isinstance(job["agents"], dict) else {}
             job["prompt"], job["now"] = str(job["prompt"] or ""), str(job["now"] or "")
             job["system"], job["waiting"] = job["system"] is True, None
@@ -314,13 +485,14 @@ def load_jobs(keep=20):
             JOBS.setdefault(job["id"], job)
 
 
-def start_job(prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True):
+def start_job(prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True, model="", effort="", label=""):
     """Run claude for a request, or a fixed command (argv, then `then` if it succeeds). All stream into the job log."""
     job = {"id": uuid.uuid4().hex[:8], "prompt": prompt, "session": session, "events": [], "done": False,
            "waiting": None, "system": bool(argv), "slug": slug, "started": time.time(), "ended": None,
-           "agents": {}, "tasks": {}, "now": prompt if argv else "Starting Claude", "code": None, "web": web}
+           "agents": {}, "tasks": {}, "now": prompt if argv else "Starting Claude", "code": None, "web": web,
+           "model": model, "effort": effort, "label": label}  # label: what the run is for, on its chip
     JOBS[job["id"]] = job
-    cmd = argv or command(prompt, session, read_dir, slug, web)
+    cmd = argv or command(prompt, session, read_dir, slug, web, model, effort)
 
     def work():
         lines, code = [], 0
@@ -363,18 +535,37 @@ def start_job(prompt, session=None, read_dir="", argv=None, slug=None, then=None
     return job
 
 
+def short(text):
+    """Paths in a log line, made short: this repo's folder goes, and a video's own folder goes too."""
+    text = str(text).replace(str(ROOT) + "/", "")
+    return re.sub(r"(?:projects|generated_videos)/[a-z0-9][a-z0-9-]*/", "", text)
+
+
+def short_url(url):
+    """A web address as a short line: its host and the start of its path, never the query."""
+    parts = urlparse(str(url))
+    host = (parts.hostname or "").removeprefix("www.")
+    path = parts.path.rstrip("/")
+    return host + (path if len(path) <= 40 else path[:38] + "...") if host else str(url)[:60]
+
+
 def describe(name, i):
-    """One short log line for a tool call."""
+    """One short log line for a tool call, as a plain verb: "Read intent.md", "Run make narrate SLUG=x"."""
     if name == "Bash":
-        return f"$ {i.get('command', '')}"
+        return f"Run {short(i.get('command', ''))}"
     if name in AGENT_TOOLS:
-        return f"Start sub-agent: {i.get('description') or i.get('subagent_type') or ''}"
+        return f"Start a helper: {i.get('description') or i.get('subagent_type') or ''}"
     if name == "SendMessage":
         return f"Message to {i.get('to', '')}: {' '.join(str(i.get('message', '')).split())[:160]}"
-    detail = {"WebSearch": "query", "WebFetch": "url", "Skill": "skill"}.get(name)
-    detail = i.get(detail) if detail else (i.get("file_path") or i.get("pattern") or i.get("path") or "")
-    label = {"WebSearch": "Search", "WebFetch": "Read page", "Edit": "Write", "Write": "Write", "MultiEdit": "Write"}
-    return f"{label.get(name, name)}: {detail}"
+    if name == "Grep":
+        return f"Search for {str(i.get('pattern', ''))[:60]!r} in {short(i.get('path') or 'the repo')}"
+    if name == "WebFetch":
+        return f"Read web page: {short_url(i.get('url', ''))}"
+    detail = {"WebSearch": "query", "Skill": "skill"}.get(name)
+    detail = i.get(detail) if detail else short(i.get("file_path") or i.get("pattern") or i.get("path") or "")
+    label = {"WebSearch": "Search the web", "WebFetch": "Read web page", "Edit": "Edit", "Write": "Write",
+             "MultiEdit": "Edit", "Read": "Read", "Glob": "Find files", "Skill": "Load skill", "TodoWrite": "Update the plan"}
+    return f"{label.get(name, name)}: {detail}" if detail else label.get(name, name)
 
 
 def doing(name, i):
@@ -407,7 +598,9 @@ def remember(job):
         try:
             (home / "build").mkdir(exist_ok=True)
             (home / "build" / "dashboard.json").write_text(json.dumps({"session": job["session"],
-                                                                     "web": job.get("web") is not False}))
+                                                                     "web": job.get("web") is not False,
+                                                                     "model": job.get("model") or "",
+                                                                     "effort": job.get("effort") or ""}))
         except OSError:
             pass
 
@@ -486,7 +679,8 @@ def events(job, raw):
                 out.append({"kind": "tool", "text": f"Sub-agent {msg.get('status') or 'ended'}: {lane['name']}", "agent": lane_id})
         elif sub == "permission_denied":
             out.append({"kind": "tool", "agent": agent,
-                         "text": f"Denied: {msg.get('tool_name') or 'a tool'} is not allowed in dashboard jobs"})
+                         "text": f"Not allowed: {msg.get('tool_name') or 'a tool'}. A dashboard job may use only its "
+                                 f"listed commands and files, so Claude tries another way. Nothing to do."})
         return out
     if kind == "assistant":
         for c in content:
@@ -558,7 +752,8 @@ def field(v, key):
     return match[1] if match else ""
 
 
-DASHBOARD_JOB = " Dashboard job: stop after the preview check; the page offers the optional 1080p."
+DASHBOARD_JOB = (" Dashboard job: stop at the intent check and at the preview check; the page offers the optional "
+                 "1080p.")
 
 
 def web_research(slug):
@@ -576,14 +771,40 @@ def web_research(slug):
     return saved["web"] if isinstance(saved.get("web"), bool) else bool(session_id(saved.get("session")))
 
 
-def resume_or_start(slug, text):
+def picked(slug):
+    """(model, effort) chosen at Start for this video: from its newest run, else build/dashboard.json; "" is the
+    default. Only plain names come back."""
+    jobs = [j for j in JOBS.values() if j.get("slug") == slug and not j["system"]]
+    if jobs:
+        newest = max(jobs, key=lambda j: j["started"])
+        pair = (newest.get("model") or "", newest.get("effort") or "")
+    else:
+        try:
+            saved = json.loads((where(slug) / "build" / "dashboard.json").read_text())
+            pair = (str(saved.get("model") or ""), str(saved.get("effort") or "")) if isinstance(saved, dict) else ("", "")
+        except (OSError, ValueError):
+            pair = ("", "")
+    return tuple(x if isinstance(x, str) and CHOICE.fullmatch(x) else "" for x in pair)
+
+
+def stage_label(slug):
+    """What a Continue run does next, for its chip: the intent, then the plan and the preview."""
+    st = gates.status(where(slug)) if folder(slug) else {"intent": "waiting", "preview": "waiting"}
+    return ("Intent" if st["intent"] in ("waiting", "ready", "changed") else
+            "Plan + preview" if st["preview"] != "approved" else "Continue")
+
+
+def resume_or_start(slug, text, label=""):
     """Continue a video in Claude: resume its last session (it keeps the context), else a new job that starts
-    from make status. Used by Approve, Continue, and Request changes. Keeps the web research choice."""
-    session, web = last_session(slug), web_research(slug)
+    from make status. Used by Approve, Continue, and Request changes. Keeps the web, model, and effort choices."""
+    session, web, (model, effort) = last_session(slug), web_research(slug), picked(slug)
+    text += refresh_sources(slug)
     if session:
-        return start_job(f"{text} Slug: {slug}.{DASHBOARD_JOB}", session=session, slug=slug, web=web)
+        return start_job(f"{text} Slug: {slug}.{DASHBOARD_JOB}", session=session, slug=slug, web=web, model=model,
+                         effort=effort, label=label or stage_label(slug))
     return start_job(f"Use the explainer-video skill. Continue the video in {where(slug).parent.name}/{slug}: run "
-                     f"make status SLUG={slug} and do the next step. {text} Slug: {slug}.{DASHBOARD_JOB}", slug=slug, web=web)
+                     f"make status SLUG={slug} and do the next step. {text} Slug: {slug}.{DASHBOARD_JOB}", slug=slug,
+                     web=web, model=model, effort=effort, label=label or stage_label(slug))
 
 
 def jobs_for(slug):
@@ -637,7 +858,7 @@ def approved_time(entry):
 def summary(slug):
     """A video card: its checks, what happens now, and whose turn it is (working, you, next, or done)."""
     v = where(slug)
-    st = gates.status(v) if (v / "script.yaml").is_file() else {"plan": "waiting", "preview": "waiting"}
+    st = gates.status(v) if v.is_dir() else {"intent": "waiting", "plan": "waiting", "preview": "waiting"}
     jobs = jobs_for(slug)
     live = next((j for j in jobs if not j["done"]), None)
     ready, total = final_parts(v)
@@ -655,12 +876,16 @@ def summary(slug):
             now += f" · {busy} sub-agent{'s' if busy > 1 else ''} working"
         if total and not finals and st["preview"] == "approved":
             now += f" · {ready} of {total} parts ready"
+    elif st["intent"] in ("ready", "changed"):
+        now, turn = "Your turn: check the intent (message, viewers, story, look)", "you"
     elif st["preview"] in ("ready", "changed"):
         now, turn = "Your turn: check the 720p preview, the final video", "you"
     elif st["preview"] == "approved":
         now, turn = ("Done: 720p and 1080p ready", "done") if finals else ("Done: the 720p video is ready (1080p optional)", "done")
-    elif st["plan"] in ("approved", "ready", "changed"):
-        now, turn = "Next: Claude writes the scenes and renders 720p. Check the plan below if you like, then press Continue.", "next"
+    elif st["intent"] == "waiting":
+        now, turn = "Next: Claude reads the sources and writes the intent. Press Continue.", "next"
+    elif st["plan"] in ("approved", "ready", "changed") or st["intent"] == "approved":
+        now, turn = "Next: Claude writes the script, the voice, and the scenes, and renders 720p. Press Continue.", "next"
     elif jobs and jobs[0]["code"] not in (0, None):
         now, turn = "The last job stopped with an error: see Activity, then press Continue", "next"
     else:
@@ -737,13 +962,15 @@ def video_info(slug):
     job = running(slug)
     return {"slug": slug, "folder": f"{v.parent.name}/{slug}", "status": gates.status(v), "checklist": gates.CHECK,
             "summary": summary(slug),
-            "jobs": [{k: j[k] for k in ("id", "prompt", "done", "started", "ended", "code", "system")} for j in jobs_for(slug)],
+            "jobs": [{k: j.get(k) for k in ("id", "prompt", "done", "started", "ended", "code", "system", "label")}
+                     for j in jobs_for(slug)],
             "has_scenes": any((v / "scenes").glob("*.html")), "running": bool(job),
             "estimate": {q: estimate(v, q, last) for q in ("720p", "1080p")},
             "verdict": verdict(v),
             "fingerprints": {step: gates.fingerprint(v, step) for step in gates.STEPS},
             "storyboard": board, "storyboard_stale": stale,
             "script": script.read_text() if script.exists() else "",
+            "intent": (v / "intent.md").read_text()[:20000] if gates.has_intent(v) else "",
             "audio": url(v / "build/narration.wav") if (v / "build/narration.wav").exists() else None,
             "previews": [url(p) for p in full(v, "out/*-720p.mp4")],
             "finals": [url(p) for p in full(v, "out/*-1080p.mp4")],
@@ -759,7 +986,7 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         parts = url.path.strip("/").split("/")
         if url.path == "/":
-            page = (HERE / "index.html").read_text().replace("__TOKEN__", TOKEN)
+            page = (HERE / "index.html").read_text().replace("__TOKEN__", TOKEN).replace("__BOOT__", BOOT)
             return self.send_body(page.encode(), "text/html; charset=utf-8")
         if url.path in STATIC:
             name, kind = STATIC[url.path]
@@ -776,6 +1003,10 @@ class Handler(BaseHTTPRequestHandler):
             path = SAMPLES.joinpath(*parts[1:])  # samples/<name>/frames/<format>/<scene>/<beat>.jpg, plain ids only
             if path.is_file():
                 return self.send_file(path)
+        if len(parts) == 2 and parts[0] == "voice" and re.fullmatch(r"[ab][fm]_[a-z]+\.m4a", parts[1]):
+            path = ROOT / "voices" / parts[1]  # samples from make voices
+            if path.is_file():
+                return self.send_file(path)
         if len(parts) == 2 and parts[0] == "swatch" and parts[1].endswith(".jpg") and SLUG.fullmatch(parts[1][:-4]):
             path = CATALOG["moodboards"] / parts[1][:-4] / "swatch.jpg"
             if path.is_file():
@@ -787,11 +1018,11 @@ class Handler(BaseHTTPRequestHandler):
             system = [{k: j[k] for k in ("id", "prompt", "done", "code")} | {"last": next(
                 (e["text"] for e in reversed(j["events"]) if e["text"].strip()), "")} for j in JOBS.values()
                 if j["system"] and not j.get("slug")]
-            return self.send_json({"videos": cards, "system": system[-1:], "stale": stale()})
+            return self.send_json({"videos": cards, "system": system[-1:], "stale": stale(), "boot": BOOT})
         if len(parts) == 3 and parts[:2] == ["api", "jobs"] and parts[2] in JOBS:
             job, since = JOBS[parts[2]], int(parse_qs(url.query).get("since", ["0"])[0])
-            keys = ("prompt", "done", "waiting", "now", "started", "ended", "code", "agents", "system", "session")
-            return self.send_json({**{k: job[k] for k in keys}, "events": job["events"][since:], "total": len(job["events"])})
+            keys = ("prompt", "done", "waiting", "now", "started", "ended", "code", "agents", "system", "session", "label")
+            return self.send_json({**{k: job.get(k) for k in keys}, "events": job["events"][since:], "total": len(job["events"])})
         if len(parts) == 3 and parts[:2] == ["api", "videos"] and SLUG.fullmatch(parts[2]) and (
                 folder(parts[2]) or jobs_for(parts[2])):  # a new job's folder may not exist yet
             return self.send_json(video_info(parts[2]))
@@ -821,46 +1052,45 @@ class Handler(BaseHTTPRequestHandler):
                                                    "stop": "Stop Docker Desktop from its own menu."}.get(parts[2], "make is not installed.")})
             labels = {"start": "System: start Docker", "stop": "System: stop Docker", "build": "System: build the image",
                       "doctor": "System: run doctor"}
-            return self.send_json({"id": start_job(labels[parts[2]], argv=argv)["id"]})
+            return self.send_json({"id": start_job(labels[parts[2]], argv=argv, label="System")["id"]})
         if parts == ["api", "jobs"]:
-            dirs = [str(Path(d.strip()).expanduser().resolve()) for d in str(body.get("add_dir") or "").splitlines() if d.strip()]
-            for d in dirs:
-                if not Path(d).is_dir():
-                    return self.send_json({"error": f"Not a folder: {d}"})
-            read_dir = dirs[0] if dirs else ""  # a relative page path is read from the first folder
             web = body.get("web") is not False
-            if body.get("auto_name") is True:  # Claude names it; a plain name from the source if it cannot
-                try:
-                    page = intake.page_path(str(body["html"]), read_dir or None) if body.get("html") else None
-                except SystemExit as e:
-                    return self.send_json({"error": str(e)})
-                source = page.stem if page else body.get("source", "")
-                name = suggest_name(body.get("source", ""), page) or plain_name(source)
+            model, effort = str(body.get("model") or ""), str(body.get("effort") or "")
+            if (model and model not in choices()["models"]) or (effort and effort not in choices()["efforts"]):
+                return self.send_json({"error": "Pick a model and an effort from the lists (Advanced)."})
+            try:
+                items = check_sources(body.get("sources"), web)
+            except SystemExit as e:
+                return self.send_json({"error": str(e)})
+            brief = str(body.get("brief") or "").strip()
+            if len(brief) > 6000:
+                return self.send_json({"error": "The brief is over 6000 characters."})
+            if body.get("auto_name") is True:  # Claude names it; a plain name from the main source if it cannot
+                first = next((x for x in items if x["role"] == "main"), items[0])
+                page = first["path"] if first["kind"] == "html" else None
+                hint = first["path"].stem if first["path"] else first["value"]
+                name = suggest_name(brief[:300] or hint, page) or plain_name(hint)
             else:
                 name = str(body.get("slug", ""))
             if not SLUG.fullmatch(name) or len(name) > 60:
                 return self.send_json({"error": "Name: lowercase letters, digits, and dashes, for example how-dns-works."})
             try:  # the project id, made now so the job is bound to its folder: projects/<YYYYMMDD>-<name>
                 slug = projects.new_id(name, PROJECTS, VIDEOS)
-            except SystemExit as e:
+                listed, dirs, first_step = prepare_sources(slug, items)
+                if brief:
+                    write_brief(PROJECTS / slug, brief)
+            except (SystemExit, OSError) as e:
                 return self.send_json({"error": str(e)})
-            prompt = str(body["prompt"])
-            if body.get("html"):  # you typed this path: copy the page now, so the job never reads outside the repo
-                try:
-                    _, src, copied, _ = intake.copy(slug, str(body["html"]), base=read_dir or None, root=PROJECTS)
-                except SystemExit as e:
-                    return self.send_json({"error": str(e)})
-                prompt = (f"{prompt} Source: the HTML page {src.name}, copied with {len(copied)} linked files to "
-                          f"projects/{slug}/assets/page/. Start with make from-html SLUG={slug}.")
-                dirs = []
+            prompt = str(body.get("prompt", "Use the explainer-video skill.")) + listed
+            if brief:
+                prompt += (f" The requester's brief is in projects/{slug}/sources/brief.md: who watches, why the video "
+                           f"exists, and what to cover. Build the intent from it first.")
             prompt += (" Web research: on." if web else
-                       " Web research: off: use only the source and the extra folders, and write no research.md.")
-            if body.get("plan_check") is True:
-                prompt += " Plan check: stop after step 1."
-            if not body.get("html"):
-                prompt += f" Start with make new SLUG={slug}: its folder holds all of this video's work."
+                       " Web research: off: use only the sources, and write no research.md.")
+            prompt += f" Start with {first_step}: the project folder holds all of this video's work."
             prompt += f" Slug: {slug}.{DASHBOARD_JOB}"
-            return self.send_json({"id": start_job(prompt, read_dir=dirs, slug=slug, web=web)["id"], "slug": slug})
+            return self.send_json({"id": start_job(prompt, read_dir=dirs, slug=slug, web=web, model=model, effort=effort,
+                                             label="Intent")["id"], "slug": slug})
         if len(parts) == 4 and parts[:2] == ["api", "samples"] and parts[3] == "use":
             name, slug = parts[2], str(body.get("slug", ""))
             if not SLUG.fullmatch(name) or not (SAMPLES / name / "script.yaml").is_file():
@@ -871,7 +1101,7 @@ class Handler(BaseHTTPRequestHandler):
                 slug = projects.new_id(slug, PROJECTS, VIDEOS)
             except SystemExit as e:
                 return self.send_json({"error": str(e)})
-            job = start_job(f"Sample {name}: {slug}", argv=["make", "new", f"SLUG={slug}", f"SAMPLE={name}"],
+            job = start_job(f"Sample {name}: {slug}", argv=["make", "new", f"SLUG={slug}", f"SAMPLE={name}"], label="Sample",
                             slug=slug, then=["make", "narrate", f"SLUG={slug}"])
             return self.send_json({"id": job["id"], "slug": slug})
         if (len(parts) == 4 and parts[:2] == ["api", "videos"] and parts[3] in ("continue", "reply")
@@ -883,7 +1113,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send_json({"error": "Type the change first."})
             ask = (f"Change request: {text} Apply it, run the step again, then ask for the check again."
                    if parts[3] == "reply" else "Continue with the next step.")
-            return self.send_json({"id": resume_or_start(slug, ask)["id"]})
+            return self.send_json({"id": resume_or_start(slug, ask, "Change" if parts[3] == "reply" else "")["id"]})
         if (len(parts) == 4 and parts[:2] == ["api", "videos"] and parts[3] in ("preview", "final")
                 and SLUG.fullmatch(parts[2]) and folder(parts[2]) and (folder(parts[2]) / "script.yaml").is_file()):
             slug, v = parts[2], folder(parts[2])
@@ -899,7 +1129,8 @@ class Handler(BaseHTTPRequestHandler):
                 formats = gates.read(v, "approved.json")["preview"].get("formats") or []
                 argv = ["make", "video", f"SLUG={slug}", f"FORMAT={'both' if len(formats) > 1 else formats[0]}"]
             label = f"{'Preview 720p' if parts[3] == 'preview' else 'Final 1080p'}: {slug}"
-            return self.send_json({"id": start_job(label, argv=argv, slug=slug)["id"]})
+            return self.send_json({"id": start_job(label, argv=argv, slug=slug,
+                                                   label="Render 720p" if parts[3] == "preview" else "Render 1080p")["id"]})
         if len(parts) == 4 and parts[:2] == ["api", "videos"] and parts[3] == "approve" and SLUG.fullmatch(parts[2]):
             slug, step, expected = parts[2], body.get("step", ""), body.get("expected")
             if not isinstance(expected, str) or not expected:  # the page always sends what it showed
@@ -910,8 +1141,9 @@ class Handler(BaseHTTPRequestHandler):
                 entry = gates.approve(folder(slug), step, expected)
             except SystemExit as e:
                 return self.send_json({"error": str(e)})
-            if step == "plan" and not running(slug):  # an early plan check: Claude goes on to the preview
-                follow = resume_or_start(slug, "Approved: the plan. Continue with step 2.")
+            if step in ("intent", "plan") and not running(slug):  # Claude goes on to the script and the preview
+                follow = resume_or_start(slug, f"Approved: the {step}. Continue: write the script, make the voice, "
+                                               f"draw the scenes, render 720p, then ask for the preview check.", "Plan + preview")
                 return self.send_json({"approved": entry, "id": follow["id"]})
             return self.send_json({"approved": entry})
         self.send_error(404)

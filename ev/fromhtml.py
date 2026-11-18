@@ -1,21 +1,21 @@
-"""make from-html, inside Docker: turn one HTML page into a video draft. The host first copies the page to
-assets/page/index.html (ev/intake.py). Then:
+"""make from-html, inside Docker: an HTML page becomes a source of a project. The host first copies the page to
+assets/page/index.html (ev/intake.py) and its CDN files to assets/page/vendor/ (ev/vendor.py). Then sections():
 
-1. vendor (ev/vendor.py, on the host): copy the scripts, styles, and fonts the page loads from a short list of CDNs
-   into assets/page/vendor/, and point the page at the copies. It sends GET requests for those files and nothing
-   else: the page's own text never leaves the machine.
-2. sections(): open the page with no network, freeze it, find its sections (<section> elements, else the
-   blocks between <h2> headings, else the whole page), and capture each one as a PNG per format. Writes
-   build/sections.json (heading, text, size, and the boxes of tables, charts, and code for highlights), and drafts
-   script.yaml (one scene per section, `say: (fill in)`), style.css, and scenes/<id>.html when they do not exist yet.
+- opens the page with no network, freezes it, finds its sections (<section> elements, else the blocks between <h2>
+  headings, else the whole page), and captures each one as a PNG per format, at 2x;
+- writes build/sections.json (heading, text, size, and the boxes of tables, charts, and code) and sources/page.md
+  (the page's text, section by section), and adds the page to sources/index.md;
+- starts the project from templates/video (intent.md, script.yaml, style.css, scenes/) where files are missing;
+- writes scenes/page-<id>.html for each section: a ready scene that shows that part of the page, for a beat that
+  needs the evidence (zoom into a table with p.zoom). A whole page tour is an option, not the default.
 
-An agent then writes the narration from build/sections.json, and the usual narrate and preview steps follow.
+The agent then reads the page like any source and re-explains it in its own story: intent first, then the script.
 """
 import base64
 import json
 import shutil
 
-from ev.common import ROOT, SIZE, formats, load
+from ev.common import SIZE, copy_template, formats, load
 from ev.vendor import page_of, vendor  # noqa: F401 (vendor: step 2, on the host; also `ev vendor` in Docker)
 
 # ---------- 2. sections (no network) ----------
@@ -98,7 +98,19 @@ FIND = """(limit) => {
     }
   }
   const PARTS = "h3, table, svg, pre, img, figure, blockquote";
+  // Text the page does not show at first (closed tabs, hidden panels): the captures miss it, page.md keeps it.
+  const hidden = [];
+  for (const e of document.body.querySelectorAll("*")) {
+    if (/^(script|style|template|noscript|svg)$/i.test(e.tagName) || getComputedStyle(e).display !== "none") continue;
+    if (e.parentElement && e.parentElement.closest("[data-ev-hidden]")) continue;
+    const text = clean(e.textContent);
+    if (text.length < 200) continue;
+    e.setAttribute("data-ev-hidden", "");
+    const name = e.getAttribute("aria-label") || (e.querySelector("h1, h2, h3, h4") || {}).textContent || e.id || e.tagName;
+    hidden.push({ label: clean(name).slice(0, 80), text: text.slice(0, 8000) });
+  }
   return { kind, title: clean(document.title), bg: pageBg, height: document.documentElement.scrollHeight,
+    hidden: hidden.slice(0, 12),
     sections: items.slice(0, limit).map(it => {
       const inside = [...document.querySelectorAll(PARTS)].filter(e => {
         const b = box(e);
@@ -122,7 +134,7 @@ MAX_PX = 16000       # Chromium's largest capture: a taller section is captured 
 
 def capture(page, video, fmt, port):
     """Open the frozen page at this format's width, find the sections, and save one PNG per section."""
-    page.goto(f"http://127.0.0.1:{port}/assets/page/index.html", wait_until="load")
+    page.goto(f"http://127.0.0.1:{port}/assets/page/index.html", wait_until="load", timeout=90000)  # a cold start can be slow
     page.wait_for_timeout(800)  # in-page CSS builders (Tailwind's browser build) and highlighters
     page.evaluate(FREEZE)
     found = page.evaluate(FIND, LIMIT)
@@ -188,8 +200,8 @@ def sections(video, fmt=None):
         print(f"  NOTE blocked a request to {u[:120]}: run make from-html again with network, or the page lacks it")
     for e in first.get("errors", []):
         print(f"  NOTE page JS error: {e[:160]}")
-    print("\n".join(f"  wrote {x}" for x in drafted) if drafted else "  script.yaml and scenes/ exist: kept as they are")
-    print(f"Next: write each beat's say from build/sections.json, then make narrate SLUG={video.name}")
+    print("\n".join(f"  wrote {x}" for x in drafted))
+    print(f"Next (step 1): read sources/page.md, fill in intent.md, then make approve SLUG={video.name} STEP=intent")
 
 
 # ---------- the draft ----------
@@ -200,54 +212,41 @@ def q(text):
 
 
 def draft(video, manifest, targets):
-    """script.yaml, style.css, and scenes/<id>.html for each section, when they do not exist. Returns what it wrote."""
+    """The project's files from the page: the template where files are missing, sources/page.md, a line in
+    sources/index.md, and scenes/page-<id>.html for each section when missing. Returns what it wrote."""
     wrote = []
     first = manifest["formats"][targets[0]]
-    if not (video / "style.css").exists():
-        shutil.copy2(ROOT / "templates" / "video" / "style.css", video / "style.css")
-        wrote.append("style.css")
-    (video / "scenes").mkdir(exist_ok=True)
-    for s in first["sections"]:
-        path = video / "scenes" / f"{s['id']}.html"
+    before = {p.relative_to(video) for p in video.rglob("*") if p.is_file()}
+    copy_template(video, manifest["title"] or video.name)
+    wrote += sorted(str(p.relative_to(video)) for p in video.rglob("*")
+                    if p.is_file() and p.relative_to(video) not in before and "assets" not in p.parts)
+    lines = [f"# {manifest['title'] or 'The page'}", "",
+             f"The text of the HTML page {manifest['source']}, section by section (make from-html). A scene "
+             f"`scenes/page-<id>.html` shows each section as it looks; `build/sections.json` has the boxes of its parts.", ""]
+    for sec in first["sections"]:
+        lines += [f"## {sec['id']}: {sec['heading'] or '(no heading)'}", "", sec["text"] or "(no text)", ""]
+        lines += [f"- part: {x['tag']} \"{x['label']}\" at x {x['x']}, y {x['y']}, {x['w']} x {x['h']} px"
+                  for x in sec["parts"]]
+        lines += [""] if sec["parts"] else []
+    if first.get("hidden"):
+        lines += ["## Hidden parts", "", "Text the page does not show at first: closed tabs and hidden panels. No capture shows it.", ""]
+        for part in first["hidden"]:
+            lines += [f"### {part['label'] or '(no name)'}", "", part["text"], ""]
+    (video / "sources" / "page.md").write_text("\n".join(lines))
+    index = video / "sources" / "index.md"
+    entry = f"- `page.md`: the HTML page {manifest['source']}, as text by section; copied to `assets/page/` (make from-html)"
+    text = index.read_text() if index.is_file() else "# Sources\n\nWhat this video read, and where each came from.\n\n"
+    if "`page.md`" not in text:
+        index.write_text(text.rstrip("\n") + "\n" + entry + "\n")
+    wrote += ["sources/page.md"]
+    for sec in first["sections"]:
+        path = video / "scenes" / f"page-{sec['id']}.html"
         if not path.exists():
-            opts = {"bg": s["bg"], "w": s["w"], "parts": [{k: x[k] for k in ("tag", "label", "x", "y", "w", "h")}
-                                                         for x in s["parts"]]}
-            path.write_text(SCENE.format(id=s["id"], what="the title area" if s["title"] else f"section {s['id'][1:]}",
+            opts = {"bg": sec["bg"], "w": sec["w"], "parts": [{k: x[k] for k in ("tag", "label", "x", "y", "w", "h")}
+                                                             for x in sec["parts"]]}
+            path.write_text(SCENE.format(id=sec["id"], what="the title area" if sec["title"] else f"section {sec['id'][1:]}",
                                          opts=json.dumps(opts).replace("</", "<\\/")))
-            wrote.append(f"scenes/{s['id']}.html")
-    if not (video / "script.yaml").exists():
-        lines = [f"title: {q(manifest['title'] or video.name)}",
-                 "source: html              # made by make from-html: one scene per section of assets/page/index.html",
-                 "brief:                    # replace each fill-in line; the facts come from the page only",
-                 "  viewer: (fill in) who watches, and what they know already",
-                 "  takeaway: (fill in) one sentence the viewer remembers",
-                 "  points:",
-                 "    - (fill in) 3 to 5 points, in order",
-                 "  example: (fill in) one concrete example from the page",
-                 "  sources:",
-                 f"    - {q('assets/page/index.html, copied from ' + manifest['source'])}",
-                 "  guesses: []",
-                 f"format: {'both' if len(targets) > 1 else targets[0]}",
-                 "moodboard: clean          # captions and accents; each scene shows the page's own look",
-                 "three: false",
-                 "voice: af_heart",
-                 "speed: 1.0",
-                 "gap: 0.35",
-                 "captions: pop",
-                 "engine: playwright",
-                 "",
-                 "# One scene per page section, in page order. Delete a scene to skip its section; add beats to a long one.",
-                 "# The scene's camera scrolls the section from top to bottom over all of its beats.",
-                 "scenes:"]
-        for s in first["sections"]:
-            lines += [f"  - id: {s['id']}",
-                      "    treatment: page",
-                      "    beats:",
-                      f"      - id: {s['id']}-a",
-                      f"        say: (fill in) narration for {q(s['heading'] or s['id'])}",
-                      f"        show: {q(('The title area' if s['title'] else 'Section ' + s['id'][1:]) + (': ' + s['heading'] if s['heading'] else '') + ', from top to bottom.')}"]
-        (video / "script.yaml").write_text("\n".join(lines) + "\n")
-        wrote.append("script.yaml")
+            wrote.append(f"scenes/page-{sec['id']}.html")
     return wrote
 
 
@@ -266,7 +265,8 @@ SCENE = """<!doctype html>
   <div class="safe"></div>
 </div>
 <script>
-// {what} of the page (make from-html). parts: tables, charts, and code in it, for p.mark (see ev/web/page.js).
+// {what} of the page (make from-html): evidence for a beat. parts: its tables, charts, and code, for p.mark and
+// p.zoom (see ev/web/page.js). Give the scene id page-{id} in script.yaml, with treatment: page.
 EV.page("{id}", {opts}).then(p => {{
   EV.ready();
 }});
