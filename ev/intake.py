@@ -28,11 +28,15 @@ REF = re.compile(r"""(?:\b(?:src|href|poster)\s*=\s*["']([^"']+)["'])|(?:url\(\s
 
 
 def page_path(file, base=None):
-    """The page as an absolute path. A relative path is read from `base` (the dashboard's Extra folder), else from
-    the current folder. Refuses anything but a regular .html or .htm file of 20 MB or less."""
-    path = Path(os.path.expanduser(str(file)))
+    """The page as an absolute path. A relative path is read from `base` (the dashboard's first extra folder); with
+    no base it is refused, because this tool's own folder is never where the page is. Refuses anything but a regular
+    .html or .htm file of 20 MB or less."""
+    path = Path(os.path.expanduser(str(file).strip()))
     if not path.is_absolute():
-        path = Path(os.path.expanduser(str(base))) / path if base else Path.cwd() / path
+        if not base:
+            raise SystemExit(f"{file} is a relative path: give the full path (it starts with / or ~), or put its "
+                             f"folder in More options, Extra folders")
+        path = Path(os.path.expanduser(str(base))) / path
     path = Path(os.path.realpath(path))
     if path.suffix.lower() not in PAGES:
         raise SystemExit(f"FILE must be an .html or .htm page, not {path.name}")

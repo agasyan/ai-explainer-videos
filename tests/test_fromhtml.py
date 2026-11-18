@@ -103,6 +103,8 @@ class IntakeTest(unittest.TestCase):
         (self.src / "page.html").write_text("<p>x</p>")
         _, src, _, _ = self.copy("rep", "ask/report/page.html", base=self.root)
         self.assertEqual(self.src.resolve() / "page.html", src)
+        with self.assertRaisesRegex(SystemExit, "give the full path"):  # never read from this tool's own folder
+            self.copy("rep", "ask/report/page.html")
 
 
 class VendorTest(unittest.TestCase):
