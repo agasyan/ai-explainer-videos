@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: stretch; gap: 30px; }  /* the bar fills the width */
+.whole { display: flex; height: 110px; border-radius: 12px; overflow: hidden; }
+.seg { background: var(--muted); border-right: 4px solid var(--bg); }
+.legend { display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="label">Where a search spends its time</div>
+    <div class="whole">
+      <div class="seg" style="width: 48%"></div><div class="seg key" style="width: 27%"></div>
+      <div class="seg" style="width: 15%"></div><div class="seg" style="width: 10%"></div>
+    </div>
+    <div class="legend"><span class="small">Database 48%</span><span class="small accent">Rendering 27%</span><span class="small">Network 15%</span><span class="small">Other 10%</span></div>
+  </div>
+</div>
+<script>
+// Pattern: stacked bar (part to whole) (docs/visual-patterns.md). Beat a: the parts fill the whole, in order. Beat b: the key part brightens.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".seg", { width: 0, duration: 0.5, stagger: 0.3 }, at("a"));
+EV.to(".key", { backgroundColor: "var(--accent)", duration: 0.4 }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

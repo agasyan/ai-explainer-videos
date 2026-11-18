@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<script src="/ev/page.js"></script>
+<style>
+
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe"></div>
+</div>
+<script>
+// Pattern: zoom into the evidence (docs/visual-patterns.md). Beat a: the page part as it is. Beat b: the camera zooms into the part the voice names, and a box marks it.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+// "s01" is a section that make from-html captured: scenes/page-s01.html has its own EV.page line with the real w and
+// parts, so copy those. camera: false keeps the section still until the zoom.
+EV.page("s01", { bg: "rgb(255, 255, 255)", w: 1200, camera: false,
+                 parts: [{ tag: "table", label: "results", x: 60, y: 260, w: 640, h: 300 }] }).then(p => {
+  p.zoom(p.parts[0], at("b"));
+  p.mark(p.parts[0], at("b") + 0.9);
+  EV.ready();
+});
+</script>
+</body>
+</html>

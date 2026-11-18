@@ -1,0 +1,36 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; gap: 36px; }
+.option-row { display: flex; gap: 32px; align-items: center; justify-content: center; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="small kicker">The verdict</div>
+    <h1 class="title verdict">Cache the search results</h1>
+    <div class="option-row">
+      <div class="card option"><div class="label">Option B</div><div class="small">keep each answer for 5 minutes</div></div>
+      <div class="card tag label good">Chosen</div>
+    </div>
+  </div>
+</div>
+<script>
+// Pattern: verdict card (docs/visual-patterns.md). Beat a: the verdict. Beat b: the chosen option.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".kicker", { opacity: 0, duration: 0.4 }, at("a"));
+EV.from(".verdict", { opacity: 0, y: 30, duration: 0.6 }, at("a"));
+EV.from(".option", { opacity: 0, y: 20, duration: 0.5 }, at("b"));
+EV.fromTo(".tag", { opacity: 0, scale: 0.6 }, { opacity: 1, scale: 1, duration: 0.5, ease: "back.out(2)" }, at("b") + 0.4);
+EV.ready();
+</script>
+</body>
+</html>

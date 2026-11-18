@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<script type="importmap">{"imports": {"three": "/vendor/three/build/three.module.js"}}</script>
+<style>
+#c { position: absolute; inset: 0; width: 100%; height: 100%; }
+.safe { justify-content: center; align-items: flex-end; gap: 70px; padding-right: 40px; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <canvas id="c" width="1920" height="1080"></canvas>
+  <div class="safe">
+    <div class="label l1">Web page</div>
+    <div class="label l2">Service</div>
+    <div class="label l3">Database</div>
+  </div>
+</div>
+<script type="module">
+// Pattern: layers in 3D (an infographic with depth) (docs/visual-patterns.md). Beat a: the stack turns slowly. Beat b: the layers spread apart, and each gets its label.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+// Needs three: true in script.yaml, a moodboard with the stage-3d treatment, and a three_why (docs/scenes.md, "3D").
+import * as THREE from "three";
+const { at } = EV;
+const renderer = new THREE.WebGLRenderer({ canvas: document.getElementById("c"), alpha: true, antialias: true,
+                                           preserveDrawingBuffer: true });
+renderer.setPixelRatio(1);
+const scene = new THREE.Scene(), camera = new THREE.PerspectiveCamera(35, 16 / 9, 0.1, 100);
+camera.position.set(6, 4.5, 8);
+camera.lookAt(-1.2, 0, 0);
+const css = getComputedStyle(document.body);
+const tone = name => css.getPropertyValue(name).trim() || "#888888";
+const layers = ["--accent", "--accent-2", "--muted"].map(name => {
+  const slab = new THREE.Mesh(new THREE.BoxGeometry(3.4, 0.16, 2.2),
+                              new THREE.MeshBasicMaterial({ color: tone(name), transparent: true, opacity: 0.88 }));
+  slab.add(new THREE.LineSegments(new THREE.EdgesGeometry(slab.geometry), new THREE.LineBasicMaterial({ color: tone("--ink") })));
+  scene.add(slab);
+  return slab;
+});
+const state = { spread: 0, turn: 0 };  // EV tweens plain objects; the painter draws from them
+EV.to(state, { turn: 0.5, duration: EV.data.duration, ease: "none" }, 0);
+EV.to(state, { spread: 1, duration: 1.2, ease: "power2.inOut" }, at("b"));
+EV.from(".l1, .l2, .l3", { opacity: 0, x: 30, duration: 0.4, stagger: 0.2 }, at("b") + 0.6);
+EV.onFrame(() => {
+  layers.forEach((slab, i) => { slab.position.set(-1.2, (1 - i) * (0.25 + state.spread), 0); });
+  scene.rotation.y = state.turn;
+  renderer.render(scene, camera);
+});
+EV.ready();
+</script>
+</body>
+</html>

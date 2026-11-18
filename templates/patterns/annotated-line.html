@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: center; }
+.dot { transform-box: fill-box; transform-origin: 50% 50%; }
+svg text { font: 600 38px var(--font); fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <svg viewBox="0 0 1500 640" width="1500" height="640">
+      <line x1="80" y1="560" x2="1440" y2="560" stroke="var(--line)" stroke-width="4"/>
+      <path id="trend" d="M 80 500 L 320 470 L 560 490 L 800 320 L 1040 270 L 1280 170 L 1420 150" fill="none"
+            stroke="var(--accent)" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle class="dot" cx="800" cy="320" r="22" fill="var(--accent-2)"/>
+      <text class="note" x="830" y="270">The fix ships</text>
+      <text x="80" y="615">Jan</text><text x="1360" y="615">Jun</text>
+    </svg>
+  </div>
+</div>
+<script>
+// Pattern: annotated line (docs/visual-patterns.md). Beat a: the line draws left to right. Beat b: the turning point and its note.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.draw("#trend", at("a"), 2);
+EV.from(".dot", { scale: 0, duration: 0.4, ease: "back.out(2)" }, at("b"));
+EV.from(".note", { opacity: 0, duration: 0.4 }, at("b") + 0.3);
+EV.ready();
+</script>
+</body>
+</html>

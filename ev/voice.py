@@ -16,6 +16,30 @@ from ev.common import MODELS, SR, VIDEOS, WHISPER, ffmpeg, load, norm, progress,
 _kokoro = None
 
 
+VOICES = {"af_heart": "US, female", "am_michael": "US, male", "bf_emma": "UK, female", "bm_george": "UK, male"}
+MEDIA = {".mp3", ".m4a", ".wav", ".aac", ".ogg", ".flac", ".mp4", ".mov", ".mkv", ".webm"}
+
+
+def voice_samples(folder):
+    """voices/<voice>.m4a: one short sample per voice, for the dashboard's play buttons (make voices)."""
+    with tempfile.TemporaryDirectory() as tmp:
+        for name, label in VOICES.items():
+            wav = Path(tmp) / f"{name}.wav"
+            speak(f"Hello. I am the {label} voice. I read your video in plain, easy English.", wav, name, 1.0)
+            ffmpeg("-i", wav, "-c:a", "aac", "-b:a", "48k", folder / f"{name}.m4a")
+            print(f"  voices/{name}.m4a")
+
+
+def transcribe_sources(video, model="base.en"):
+    """Speech to text for every recording in a project's sources/ that has no transcript yet."""
+    found = [f for f in sorted((video / "sources").rglob("*")) if f.suffix.lower() in MEDIA and f.is_file()]
+    for f in found:
+        if not f.with_suffix(".txt").exists():
+            transcribe(f, model)
+    if not found:
+        print(f"No recording in {video.name}/sources/")
+
+
 def voice_name(value):
     """A Kokoro English voice: a* is US English, b* is UK English, for example af_heart or bm_george."""
     voice = str(value or "af_heart").strip()
@@ -114,6 +138,7 @@ def align(text, heard, duration):
 def narrate(video):
     """Speak every beat (cached), check it with whisper.cpp, print each beat, and write build/narration.json,
     build/narration.wav, and storyboard.md. Part of step 1, so no approval needed."""
+    gates.require_intent(video)
     spec = load(video)
     voice = voice_name(spec.get("voice"))
     speed, gap = float(spec.get("speed", 1.0)), float(spec.get("gap", 0.35))
@@ -174,8 +199,14 @@ def narrate(video):
     return spec, narration
 
 
+# whisper.cpp model names, the only values MODEL may take: each becomes part of a file name and a download URL.
+MODELS = re.compile(r"(tiny|base|small|medium)(\.en)?|large-v[123]|large-v3-turbo")
+
+
 def transcribe(path, model="base.en"):
     """Speech to text with whisper.cpp: writes <file>.txt and <file>.srt next to the file."""
+    if not isinstance(model, str) or not MODELS.fullmatch(model):
+        raise SystemExit(f"MODEL must be a whisper.cpp model, such as base.en, small, or large-v3-turbo, not {model!r}")
     m = WHISPER if model == "base.en" else VIDEOS / ".models" / f"ggml-{model}.bin"  # the only writable folder
     if not m.exists():
         m.parent.mkdir(exist_ok=True)

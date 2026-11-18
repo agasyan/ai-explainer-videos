@@ -21,6 +21,7 @@ def setUpModule():
     PROJECTS_TMP = tempfile.TemporaryDirectory()
     server.PROJECTS = Path(PROJECTS_TMP.name) / "projects"
     server.PROJECTS.mkdir()
+    server.ORIGINS = Path(PROJECTS_TMP.name) / ".dashboard" / "sources"
 
 
 def tearDownModule():
@@ -38,6 +39,7 @@ class CommandTest(unittest.TestCase):
         edits = [r for r in rules(server.command("x", slug="dns"), "--allowedTools") if r.startswith("Edit")]
         self.assertTrue(edits)
         self.assertTrue(all(r.startswith("Edit(/projects/dns/") for r in edits), edits)  # a new job: a project
+        self.assertIn("Edit(/projects/dns/intent.md)", edits)  # step 1 writes it
         self.assertFalse(any("approved" in r.lower() for r in edits))
 
     def test_jobs_run_make_only_for_their_own_slug(self):
@@ -46,6 +48,8 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Bash(make preview SLUG=dns *)", allowed)
         self.assertFalse(any(r.startswith("Bash(make narrate:") or r.startswith("Bash(make preview:") for r in allowed))
         self.assertFalse(any("SLUG=dns2" in r for r in allowed))
+        self.assertIn("Bash(make transcribe SLUG=dns)", allowed)
+        self.assertNotIn("Bash(make transcribe SLUG=dns *)", allowed)  # MODEL= would name a file to download
 
     def test_jobs_run_in_dont_ask_mode_and_deny_ask_rules(self):
         cmd = server.command("x")
@@ -89,6 +93,34 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Bash(make stills SLUG=dns *)", rules(cmd, "--allowedTools"))
         self.assertIn("Bash(*FILE=*)", rules(cmd, "--disallowedTools"))  # only the New video form copies a page
 
+    def test_model_and_effort_come_from_claude_help_and_never_become_flags(self):
+        help_text = """  --effort <level>                      Effort level for the current session
+                                        (low, medium, high, xhigh, max)
+  --model <model>                       Model for the current session. Use an
+                                        alias for the latest model (e.g.
+                                        'fable', 'opus', or 'sonnet') or a
+                                        model's full name.
+  -n, --name <name>                     Set a display name"""
+        self.assertEqual({"models": ["fable", "opus", "sonnet"], "efforts": ["low", "medium", "high", "xhigh", "max"]},
+                         server.claude_choices(help_text))
+        self.assertEqual({"models": ["opus", "sonnet"], "efforts": ["low", "medium", "high", "xhigh", "max"]},
+                         server.claude_choices("no such lines"))  # a changed help text: the fixed lists
+        cmd = server.command("x", slug="dns", model="opus", effort="high")
+        self.assertEqual(["--model", "opus", "--effort", "high"], cmd[3:7])
+        bad = server.command("x", slug="dns", model="--dangerously-skip-permissions", effort="-x")
+        self.assertNotIn("--dangerously-skip-permissions", bad)
+        self.assertNotIn("--model", bad)
+
+    def test_log_lines_are_plain_verbs_with_short_paths(self):
+        root = str(server.ROOT)
+        self.assertEqual("Read: intent.md", server.describe("Read", {"file_path": f"{root}/projects/20261118-x/intent.md"}))
+        self.assertEqual("Edit: scenes/hook.html", server.describe("Edit", {"file_path": f"{root}/generated_videos/dns/scenes/hook.html"}))
+        self.assertEqual("Run make narrate SLUG=20261118-x", server.describe("Bash", {"command": "make narrate SLUG=20261118-x"}))
+        self.assertEqual("Read: ev/web/page.js", server.describe("Read", {"file_path": f"{root}/ev/web/page.js"}))
+        self.assertEqual("Search for 'intent' in dashboard/server.py",
+                         server.describe("Grep", {"pattern": "intent", "path": f"{root}/dashboard/server.py"}))
+        self.assertEqual("Start a helper: Recommend a look", server.describe("Agent", {"description": "Recommend a look"}))
+
     def test_web_research_off_denies_the_web_tools(self):
         on = server.command("x", slug="dns")
         off = server.command("x", slug="dns", web=False)
@@ -104,7 +136,7 @@ class CommandTest(unittest.TestCase):
     def test_a_suggested_name_must_be_a_plain_name(self):
         import subprocess
         from unittest import mock
-        answers = {"partner-sort-pins\n": "partner-sort-pins", "  `cache-basics`.\n": "cache-basics",
+        answers = {"queue-triage-plan\n": "queue-triage-plan", "  `cache-basics`.\n": "cache-basics",
                    "Sure! Here is a name: ../etc\n": None, "20261118-dns\n": None, "": None}
         saved = server.TOOLS["claude"]
         server.TOOLS["claude"] = "/usr/bin/claude"
@@ -160,17 +192,28 @@ class ProgressTest(unittest.TestCase):
         self.assertEqual("t1", out[0]["agent"])
         lane = job["agents"]["t1"]
         self.assertEqual(("Research 1914", "Find dates", 1, False), (lane["name"], lane["task"], lane["steps"], lane["done"]))
-        self.assertEqual("Search: Sperry 1914", lane["last"])
+        self.assertEqual("Search the web: Sperry 1914", lane["last"])
         self.line(job, {"type": "user", "message": {"content": [
             {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "DONE: 4 claims"}]}]}})
         self.assertTrue(lane["done"])
         self.assertEqual("DONE: 4 claims", lane["report"])
 
+    def test_a_refused_call_shows_under_the_agent_that_made_it(self):
+        job = self.job()
+        self.line(job, {"type": "assistant", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"description": "Draw scene hook", "prompt": "Draw"}}]}})
+        self.line(job, {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "ls scenes"}}]}})
+        out = self.line(job, {"type": "system", "subtype": "permission_denied", "tool_name": "Bash", "tool_use_id": "t3"})
+        self.assertEqual("t1", out[0]["agent"])
+
     def test_a_denied_tool_is_a_log_line_not_a_crash(self):
         job = self.job()
         out = self.line(job, {"type": "system", "subtype": "permission_denied", "tool_name": "Bash",
                               "message": "Permission to use Bash has been denied because Claude Code is running in don't ask mode."})
-        self.assertEqual("Denied: Bash is not allowed in dashboard jobs", out[0]["text"])
+        self.assertTrue(out[0]["text"].startswith("Not allowed: Bash. A dashboard job may use only"), out[0]["text"])
+        self.assertEqual("Read web page: statsig.com/perspectives/factorial-design-testing...",
+                         server.describe("WebFetch", {"url": "https://www.statsig.com/perspectives/factorial-design-testing-variables?x=1"}))
         self.assertEqual([], self.line(job, {"type": "system", "subtype": "init", "message": "plain text"}))
 
     def test_a_background_sub_agent_runs_until_its_notification(self):
@@ -234,7 +277,7 @@ class ProgressTest(unittest.TestCase):
             (v / "build" / "narration.json").write_text(json.dumps({"source": server.gates.fingerprint(v, "plan")}))
             card = server.summary("x")  # the plan is ready: Claude goes on, and the preview check covers it
             self.assertEqual("next", card["turn"])
-            self.assertTrue(card["now"].startswith("Next: Claude writes the scenes"))
+            self.assertTrue(card["now"].startswith("Next: Claude writes the script"))
         self.with_videos(check)
 
     def test_a_new_job_has_a_card_before_its_folder_exists(self):
@@ -350,6 +393,31 @@ class PageTest(unittest.TestCase):
             self.assertIn("script-src 'self'", headers.get("Content-Security-Policy", ""), path)
             self.assertEqual("nosniff", headers.get("X-Content-Type-Options"), path)
 
+    def test_markdown_reader_gives_plain_data(self):
+        import shutil
+        import subprocess
+        node = shutil.which("node")
+        if not node:
+            self.skipTest("node runs in the Docker image (make test)")
+        js = (server.HERE / "app.js").read_text()
+        md = js[js.index("// ---- md: start ----"):js.index("// ---- md: end ----")]
+        src = ("# Intent: x\n\n## Key message\n\nDrop the **rule** now, see `intent.md`.\n\n- one\n- two,\n  wrapped\n"
+               "3. third\n   - under three\n4. fourth\n\n[site](https://example.com) and [bad](javascript:alert(1)) <b>raw</b>\n"
+               "```\ncode <i>\n```\n")
+        out = subprocess.run([node, "-e", md + "process.stdout.write(JSON.stringify(MD.parse(require('fs').readFileSync(0, 'utf8'))))"],
+                             input=src, capture_output=True, text=True, check=True).stdout
+        blocks = json.loads(out)
+        self.assertEqual(["h2", "h3", "p", "ul", "ol", "p", "pre"], [b["tag"] for b in blocks])
+        self.assertEqual({"tag": "strong", "text": "rule"}, blocks[2]["kids"][1])
+        self.assertEqual("two, wrapped", blocks[3]["items"][1]["kids"][0]["text"])
+        numbered = blocks[4]  # one list that keeps its number, with a bullet under item 3
+        self.assertEqual((3, 2), (numbered["start"], len(numbered["items"])))
+        self.assertEqual("under three", numbered["items"][0]["sub"]["items"][0][0]["text"])
+        tags = [k["tag"] for k in blocks[5]["kids"]]
+        self.assertEqual(["a"], [t for t in tags if t == "a"])  # a javascript: link stays text
+        self.assertIn("<b>raw</b>", "".join(k["text"] for k in blocks[5]["kids"]))  # HTML stays text
+        self.assertEqual("code <i>", blocks[6]["text"])
+
     def test_page_has_no_inline_script_and_no_remote_files(self):
         _, _, body = self.get("/")
         page = body.decode()
@@ -371,6 +439,11 @@ class PageTest(unittest.TestCase):
 
     def test_post_without_the_token_is_refused(self):
         self.assertEqual(403, self.get("/api/jobs", "POST", body="{}")[0])
+
+    def test_the_page_knows_its_run(self):
+        page = self.get("/")[2].decode()
+        self.assertIn(f'<meta name="ev-boot" content="{server.BOOT}">', page)
+        self.assertEqual(server.BOOT, json.loads(self.get("/api/state")[2])["boot"])
 
     def test_the_web_choice_survives_a_restart_and_fails_closed(self):
         import tempfile
@@ -399,12 +472,13 @@ class PageTest(unittest.TestCase):
         started = self.stub_jobs()
         saved = server.suggest_name
         try:
+            topic = [{"kind": "topic", "role": "main", "value": "How a cache works"}]
             server.suggest_name = lambda source, page=None: "cache-basics"
             self.assertEqual(f"{TODAY}-cache-basics", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
-                                                                             "source": "how a cache works"})["slug"])
+                                                                             "sources": topic})["slug"])
             server.suggest_name = lambda source, page=None: None
             self.assertEqual(f"{TODAY}-how-a-cache-works", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
-                                                                                  "source": "How a cache works"})["slug"])
+                                                                                  "sources": topic})["slug"])
         finally:
             server.suggest_name = saved
         self.assertTrue(all(j["web"] for j in started))  # on unless you untick it
@@ -412,8 +486,9 @@ class PageTest(unittest.TestCase):
     def test_new_job_needs_a_valid_name_and_gets_a_fresh_project(self):
         (server.PROJECTS / f"{TODAY}-dns").mkdir()
         try:
+            topic = [{"kind": "topic", "role": "main", "value": "how DNS works"}]
             ask = lambda slug: json.loads(self.get("/api/jobs", "POST", {"X-EV-Token": server.TOKEN},
-                                                   json.dumps({"prompt": "p", "slug": slug}))[2])
+                                                   json.dumps({"prompt": "p", "slug": slug, "sources": topic}))[2])
             self.assertIn("lowercase letters", ask("../x")["error"])
             self.assertIn("already exists", ask(f"{TODAY}-dns")["error"])  # a full id must be free
             started = self.stub_jobs()
@@ -482,9 +557,9 @@ class PageTest(unittest.TestCase):
     def stub_jobs(self):
         """Capture what a route would start, instead of running make or claude."""
         started, saved = [], server.start_job
-        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
+        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True, model="", effort="", label="": (
             started.append({"prompt": prompt, "argv": argv, "slug": slug, "session": session, "web": web,
-                            "read_dir": read_dir}) or {"id": "job1"})
+                            "read_dir": read_dir, "model": model, "effort": effort, "label": label}) or {"id": "job1"})
         self.addCleanup(setattr, server, "start_job", saved)
         return started
 
@@ -619,7 +694,7 @@ class PageTest(unittest.TestCase):
             self.assertEqual("About 6 min", info["estimate"]["720p"])  # 60 s x 30 frames x 0.2 s
         self.with_video(check)
 
-    def test_an_html_page_is_copied_before_the_job_and_named_in_the_prompt(self):
+    def test_sources_are_checked_and_copied_before_the_job(self):
         import tempfile
         saved = server.VIDEOS, server.PROJECTS
         with tempfile.TemporaryDirectory() as tmp:
@@ -629,27 +704,167 @@ class PageTest(unittest.TestCase):
             src.mkdir(parents=True)
             (src / "report.html").write_text('<img src="chart.png"><a href="../../secret.txt">x</a>')
             (src / "chart.png").write_bytes(b"png")
+            (src / "sync.m4a").write_bytes(b"audio")
+            (src / "notes.md").write_text("notes")
             (Path(tmp) / "secret.txt").write_text("no")
             started = self.stub_jobs()
+            job = lambda sources, **kw: self.post("/api/jobs", {"prompt": "p", "slug": "rep", "sources": sources, **kw})
+            src_ = lambda kind, value, role="main": {"kind": kind, "role": role, "value": str(value)}
             try:
-                self.assertIn("must be an .html", self.post("/api/jobs", {"prompt": "p", "slug": "a",
-                                                                          "html": str(src / "chart.png")})["error"])
-                self.assertFalse(server.PROJECTS.exists() and any(server.PROJECTS.iterdir()))
-                r = self.post("/api/jobs", {"prompt": "p", "slug": "rep", "add_dir": tmp, "web": False,
-                                            "html": "ask/report/report.html", "plan_check": True})
+                refused = [
+                    (job([]), "Add a source first"),
+                    (job([src_("html", src / "chart.png")]), "must be an .html"),
+                    (job([src_("html", "ask/report/report.html")]), "give the full path"),
+                    (job([src_("folder", "ask/report")]), "give the full path"),
+                    (job([src_("recording", src / "notes.md")]), "audio or video"),
+                    (job([src_("link", "https://example.com/a")], web=False), "needs Research the web"),
+                    (job([src_("pr", "please merge")]), "a PR is a link"),
+                    (job([src_("html", src / "report.html"), src_("html", src / "report.html", "context")]), "One HTML page"),
+                    (job([{"kind": "shell", "role": "main", "value": "x"}]), "choose a kind"),
+                ]
+                for r, want in refused:
+                    self.assertIn(want, r.get("error", ""))
+                self.assertFalse(server.PROJECTS.exists() and any(server.PROJECTS.iterdir()))  # nothing made on a refusal
+                r = job([src_("html", src / "report.html"), src_("recording", src / "sync.m4a", "context"),
+                         src_("file", src / "notes.md", "facts"), src_("folder", src, "context"),
+                         src_("pr", "org/repo#482", "facts")], web=False)
                 self.assertEqual(("job1", f"{TODAY}-rep"), (r["id"], r["slug"]))
-                page = server.PROJECTS / f"{TODAY}-rep" / "assets" / "page"
-                copied = sorted(p.name for p in page.rglob("*") if p.is_file())
+                home = server.PROJECTS / f"{TODAY}-rep"
+                copied = sorted(str(p.relative_to(home)) for p in home.rglob("*") if p.is_file())
             finally:
                 server.VIDEOS, server.PROJECTS = saved
-        self.assertEqual(["chart.png", "index.html", "source.json"], copied)
+        self.assertEqual(["assets/page/chart.png", "assets/page/index.html", "assets/page/source.json",
+                          "sources/files/notes.md", "sources/recordings/sync.m4a"], copied)  # the origins: host only
         prompt = started[0]["prompt"]
-        self.assertIn(f"make from-html SLUG={TODAY}-rep", prompt)
-        self.assertIn("Plan check: stop after step 1.", prompt)
+        self.assertIn(f"Start with make from-html SLUG={TODAY}-rep", prompt)
+        self.assertIn(f"1. HTML page, Main story: the page report.html", prompt)
+        self.assertIn(f"(run make transcribe SLUG={TODAY}-rep)", prompt)
+        self.assertIn("5. PR, Facts and numbers: org/repo#482", prompt)
         self.assertIn("Web research: off", prompt)
-        self.assertEqual((False, []), (started[0]["web"], started[0]["read_dir"]))  # the copy: no folder to read
-        self.assertNotIn(tmp, prompt)  # the job works on the copy, never on your path
+        self.assertEqual((False, [str(src.resolve())]), (started[0]["web"], started[0]["read_dir"]))  # the folder: read only
+        self.assertNotIn(str(src / "report.html"), prompt)  # the job works on the copies
         self.assertTrue(prompt.endswith(server.DASHBOARD_JOB))
+
+    def test_the_brief_is_saved_in_the_project_and_named_in_the_request(self):
+        started = self.stub_jobs()
+        topic = [{"kind": "topic", "role": "main", "value": "how a cache works"}]
+        brief = "For the support leads: explain the new queue.\n\nKnown already: the old queue drops tickets."
+        self.assertIn("over 6000", self.post("/api/jobs", {"prompt": "p", "slug": "big", "sources": topic,
+                                                           "brief": "x" * 6001})["error"])
+        r = self.post("/api/jobs", {"prompt": "p", "slug": "brief", "sources": topic, "brief": brief})
+        home = server.PROJECTS / r["slug"]
+        try:
+            self.assertIn("Known already: the old queue drops tickets.", (home / "sources" / "brief.md").read_text())
+            self.assertIn("`brief.md`", (home / "sources" / "index.md").read_text())
+            self.assertIn(f"projects/{r['slug']}/sources/brief.md", started[0]["prompt"])
+            self.assertNotIn("drops tickets", started[0]["prompt"])  # the job reads it from the project
+        finally:
+            import shutil
+            shutil.rmtree(home)
+
+    def test_model_and_effort_are_checked_and_kept_for_the_next_steps(self):
+        started = self.stub_jobs()
+        saved = dict(server.CHOICES)
+        server.CHOICES.clear()
+        server.CHOICES.update({"models": ["opus", "sonnet"], "efforts": ["low", "high"]})
+        topic = [{"kind": "topic", "role": "main", "value": "how a cache works"}]
+        try:
+            self.assertIn("Pick a model", self.post("/api/jobs", {"prompt": "p", "slug": "m", "sources": topic,
+                                                                  "model": "gpt-9"})["error"])
+            r = self.post("/api/jobs", {"prompt": "p", "slug": "m", "sources": topic, "model": "opus", "effort": "high"})
+            self.assertEqual(("opus", "high"), (started[0]["model"], started[0]["effort"]))
+            server.JOBS["m1"] = {"slug": r["slug"], "system": False, "started": 1, "model": "opus", "effort": "high"}
+            self.assertEqual(("opus", "high"), server.picked(r["slug"]))  # Continue and Approve keep them
+        finally:
+            server.JOBS.pop("m1", None)
+            server.CHOICES.clear()
+            server.CHOICES.update(saved)
+
+    def test_a_changed_original_is_copied_again_before_the_next_step(self):
+        import os
+        import tempfile
+        saved = server.VIDEOS, server.PROJECTS
+        with tempfile.TemporaryDirectory() as tmp:
+            server.VIDEOS, server.PROJECTS = Path(tmp) / "videos", Path(tmp) / "projects"
+            server.VIDEOS.mkdir()
+            page, notes = Path(tmp) / "report.html", Path(tmp) / "notes.md"
+            page.write_text("<p>first</p>")
+            notes.write_text("first notes")
+            started = self.stub_jobs()
+            try:
+                r = self.post("/api/jobs", {"prompt": "p", "slug": "rep", "sources": [
+                    {"kind": "html", "role": "main", "value": str(page)}, {"kind": "file", "role": "facts", "value": str(notes)}]})
+                home = server.PROJECTS / r["slug"]
+                self.assertEqual("", server.refresh_sources(r["slug"]))  # nothing changed
+                page.write_text("<p>second, with the new cost</p>")
+                notes.write_text("second notes")
+                os.utime(page, ns=(1, 2_000_000_000_000_000_000))
+                server.resume_or_start(r["slug"], "Change request: use the new cost.")
+                prompt = started[-1]["prompt"]
+                self.assertIn("copied again: the HTML page, sources/files/notes.md", prompt)
+                self.assertIn(f"Run make from-html SLUG={r['slug']} first", prompt)
+                self.assertIn("new cost", (home / "assets" / "page" / "index.html").read_text())
+                self.assertEqual("second notes", (home / "sources" / "files" / "notes.md").read_text())
+                self.assertEqual("", server.refresh_sources(r["slug"]))  # copied once
+                secret = Path(tmp) / "secret.txt"
+                secret.write_text("not for the video")
+                (home / "build").mkdir(exist_ok=True)  # a record a job planted in its project counts for nothing
+                (home / "build" / "sources.json").write_text(json.dumps([{"kind": "file", "path": str(secret),
+                                                                         "stamp": [0, 0], "dest": "sources/files/s.txt"}]))
+                self.assertEqual("", server.refresh_sources(r["slug"]))
+                self.assertFalse((home / "sources" / "files" / "s.txt").exists())
+            finally:
+                server.VIDEOS, server.PROJECTS = saved
+
+    def test_a_symlink_in_the_project_stops_the_dashboard_writing_through_it(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            outside, home = Path(tmp) / "outside", server.PROJECTS / f"{TODAY}-linked"
+            outside.mkdir()
+            home.mkdir()
+            try:
+                os.symlink(outside, home / "sources")  # what code in the container could do
+                with self.assertRaises(OSError):
+                    server.write_brief(home, "who watches")
+                os.symlink(outside, home / "build")
+                server.persist({"slug": home.name, "id": "j1", "events": [{"kind": "say", "text": "x"}]}, final=True)
+                self.assertEqual([], list(outside.iterdir()))
+            finally:
+                import shutil
+                shutil.rmtree(home)
+
+    def test_each_run_says_what_it_is_for(self):
+        def check(video):
+            from ev import gates
+            started = self.stub_jobs()
+            (video / "intent.md").write_text("## Key message\n\nCaching cuts the wait.\n")
+            self.post("/api/videos/x/continue", {})
+            self.post("/api/videos/x/reply", {"text": "Shorter, please."})
+            self.post("/api/videos/x/approve", {"step": "intent", "expected": gates.fingerprint(video, "intent")})
+            self.assertEqual(["Intent", "Change", "Plan + preview"], [j["label"] for j in started])
+        self.with_video(check)
+
+    def test_an_intent_check_resumes_claude_and_shows_on_the_card(self):
+        def check(video):
+            from ev import gates
+            (video / "intent.md").write_text("# Intent\n\n## Key message\n\n(fill in) one sentence\n")
+            self.assertEqual("waiting", server.summary("x")["status"]["intent"])
+            (video / "intent.md").write_text("# Intent\n\n## Key message\n\nCaching cuts the wait.\n")
+            card = server.summary("x")
+            self.assertEqual(("you", "ready"), (card["turn"], card["status"]["intent"]))
+            self.assertIn("Caching cuts the wait.", json.loads(self.get("/api/videos/x")[2])["intent"])
+            started = self.stub_jobs()
+            r = self.post("/api/videos/x/approve", {"step": "intent", "expected": gates.fingerprint(video, "intent")})
+            self.assertIn("approved", r)
+            self.assertIn("Approved: the intent.", started[0]["prompt"])
+        self.with_video(check)
+
+    def test_voice_samples_are_served_by_plain_name_only(self):
+        self.assertEqual(200, self.get("/voice/af_heart.m4a")[0])
+        self.assertEqual("audio/mp4", self.get("/voice/af_heart.m4a")[1]["Content-Type"])
+        for bad in ("/voice/../app.js", "/voice/af_heart.wav", "/voice/xx_heart.m4a"):
+            self.assertEqual(404, self.get(bad)[0], bad)
 
     def with_samples(self, fn):
         import tempfile
@@ -681,7 +896,7 @@ class PageTest(unittest.TestCase):
             self.assertIn("lowercase letters", self.post("/api/samples/autopilot-training/use", {"slug": "X"})["error"])
             started = []
             saved = server.start_job
-            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
+            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True, model="", effort="", label="": (
                 started.append((argv, then, slug)) or {"id": "j"})
             try:
                 self.assertEqual({"id": "j", "slug": f"{TODAY}-y"}, self.post("/api/samples/autopilot-training/use", {"slug": "y"}))

@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: center; }
+svg text { font: 600 36px var(--font); fill: var(--ink); }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <svg viewBox="0 0 1400 640" width="1400" height="640">
+      <polygon class="cond" points="700,40 960,220 700,400 440,220" fill="var(--panel)" stroke="var(--line)" stroke-width="5"/>
+      <text x="700" y="210" text-anchor="middle">Answer in</text>
+      <text x="700" y="256" text-anchor="middle">the cache?</text>
+      <path class="yes" d="M 440 220 H 200 V 470" fill="none" stroke="var(--line)" stroke-width="8"/>
+      <path class="no" d="M 960 220 H 1200 V 470" fill="none" stroke="var(--line)" stroke-width="8"/>
+      <text x="300" y="200">yes</text><text x="1050" y="200">no</text>
+      <rect class="yes-box" x="40" y="480" width="320" height="110" rx="20" fill="var(--panel)" stroke="var(--line)" stroke-width="4"/>
+      <text class="yes-t" x="200" y="548" text-anchor="middle">Serve the copy</text>
+      <rect class="no-box" x="1040" y="480" width="320" height="110" rx="20" fill="var(--panel)" stroke="var(--line)" stroke-width="4"/>
+      <text class="no-t" x="1200" y="548" text-anchor="middle">Ask the database</text>
+    </svg>
+  </div>
+</div>
+<script>
+// Pattern: decision diamond (a rule) (docs/visual-patterns.md). Beat a: the condition. Beat b: the branch it takes lights up; the other dims.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".cond", { opacity: 0, duration: 0.5 }, at("a"));
+EV.to(".yes", { stroke: "var(--accent)", duration: 0.4 }, at("b"));
+EV.to(".yes-box", { stroke: "var(--accent)", duration: 0.4 }, at("b"));
+EV.to(".no, .no-box, .no-t", { opacity: 0.3, duration: 0.4 }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

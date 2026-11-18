@@ -1,18 +1,17 @@
-"""Approval checks: one required check, the 720p preview, which is the final video. The plan check is optional,
-and 1080p is an optional render after the preview check.
+"""Approval checks: 2 stops. The intent (what the video says, to whom, how) before any script, and the 720p preview,
+which is the final video and also covers the script and the voice. 1080p is an optional render after the preview.
 
 Standard library only: ev (in Docker) and dashboard/server.py (on the host) both use it.
-An approval stores a hash of what it covers. If that changes later, the approval stops counting,
-and 1080p refuses to run until someone approves the preview again.
+An approval stores a hash of what it covers. If that changes later, the approval stops counting.
 
+- intent covers intent.md. A video with an intent.md makes no voice and no picture until it is approved
+  (require_intent). A video made before the intent step has none, and skips it.
 - plan covers script.yaml, except the top-level `format`, `look`, `moodboard`, `three`, `captions`, and `engine`
   lines and each beat's `hold` (timing, look, and renderer, which the preview check covers), plus research.md.
+  Nobody stops for it: approving the preview approves the plan it was made from.
 - preview covers script.yaml, style.css, scenes/, and assets/.
 
 Approvals count only from a file named exactly approved.json (see exact()).
-
-Narrate and the 720p preview wait for no approval. Approving the preview approves the plan it was made from too,
-unless you approved the plan on its own before (make approve STEP=plan).
 """
 import hashlib
 import json
@@ -21,8 +20,10 @@ import re
 from datetime import datetime, timezone
 from pathlib import Path
 
-STEPS = ("plan", "preview")
+STEPS = ("intent", "plan", "preview")
 CHECK = {
+    "intent": "Is the key message right? The viewers? The story, the look, and the length? What the video keeps and "
+              "cuts? Anything missing? The script and the voice come next, and you check them with the preview.",
     "plan": "Right story for the viewer? Facts match the source? Each beat's words and picture make sense? "
             "Did you listen to build/narration.wav?",
     "preview": "Right story, and facts that match the source? Each frame shows its storyboard line? Nothing cut off, "
@@ -39,7 +40,10 @@ MOODBOARDS = Path(__file__).resolve().parent.parent / "moodboards"
 
 def fingerprint(video, step):
     video, h = Path(video), hashlib.sha256()
-    if step == "plan":
+    if step == "intent":
+        path = video / "intent.md"
+        h.update(path.read_bytes() if exact(path) else b"")
+    elif step == "plan":
         path = video / "script.yaml"
         text = path.read_text() if path.exists() else ""
         h.update("\n".join(line.rstrip() for line in text.splitlines() if not _NOT_PLAN.match(line)).encode())
@@ -108,9 +112,24 @@ def preview_formats(video):
                   if k.endswith("-720p") and v == fp)
 
 
+def has_intent(video):
+    """True for a video that has the intent step: intent.md exists (templates/video/intent.md since 2026-11-18)."""
+    return exact(Path(video) / "intent.md")
+
+
+def require_intent(video):
+    """Stop the voice and the picture until the intent is approved. A video with no intent.md skips the step."""
+    if has_intent(video) and not approved(video, "intent"):
+        name = Path(video).name
+        raise SystemExit(f"Approval check: the intent is not approved, or intent.md changed after approval.\n"
+                         f"Check intent.md, then: make approve SLUG={name} STEP=intent")
+
+
 def ready(video, step):
     """True when the step's output exists and matches the current files."""
     video = Path(video)
+    if step == "intent":
+        return has_intent(video) and "(fill in" not in (video / "intent.md").read_text()
     if step == "plan":
         path = video / "script.yaml"
         return (path.exists() and "(fill in)" not in path.read_text()
@@ -119,10 +138,12 @@ def ready(video, step):
 
 
 def status(video):
-    """{step: "approved" | "ready" (waiting for your check) | "changed" (edited after approval) | "waiting"}.
-    A plan that is "ready" needs no action: the preview check covers it."""
+    """{step: "approved" | "ready" (waiting for your check) | "changed" (edited after approval) | "waiting"
+    | "none" (intent only: a video made before the intent step)}. A plan that is "ready" needs no action:
+    the preview check covers it."""
     approvals = read(video, "approved.json")
-    return {step: "approved" if approved(video, step) else "changed" if step in approvals
+    return {step: "none" if step == "intent" and not has_intent(video)
+            else "approved" if approved(video, step) else "changed" if step in approvals
             else "ready" if ready(video, step) else "waiting" for step in STEPS}
 
 
@@ -147,11 +168,14 @@ def approve(video, step, expected=None):
         raise SystemExit(f"STEP must be one of: {', '.join(STEPS)}")
     if expected is not None and expected != fingerprint(video, step):
         raise SystemExit("Changed since you looked: check again")
+    if step != "intent":
+        require_intent(video)
     with_preview = step == "preview" and not approved(video, "plan")
     if with_preview and not ready(video, "plan"):
         raise SystemExit(f"The plan changed after the preview: run make narrate and a full make preview SLUG={name}")
     if not ready(video, step):
-        hint = "run make narrate after the last edit" if step == "plan" else "run a full make preview after the last edit"
+        hint = {"intent": "fill in intent.md first", "plan": "run make narrate after the last edit"}.get(
+            step, "run a full make preview after the last edit")
         raise SystemExit(f"Nothing to approve for {step}: {hint}. See make status SLUG={name}")
     data = read(video, "approved.json")
     stamp = {"by": os.environ.get("EV_USER") or os.environ.get("USER") or "unknown",

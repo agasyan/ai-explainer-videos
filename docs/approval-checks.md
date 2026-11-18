@@ -1,12 +1,15 @@
 # Approval checks
 
-One check: the 720p preview. It is the final video, and approving it approves the plan it was made from. Nothing waits for an approval before it: narrate and the 720p render run as soon as their files are ready.
+Two stops. The **intent** comes first: what the video says, to whom, and how, before any script. The **720p preview** comes last: it is the final video, and approving it also approves the script and the voice it was made from. Between them, Claude researches, writes the script, makes the voice, and draws the scenes with no stop.
 
 | Step | The agent makes | You check | Approve with |
 |------|-----------------|-----------|--------------|
-| 1 Plan | `script.yaml` (brief, picks, plus `say` and `show` per beat), `storyboard.md`, the voice, `build/narration.wav` | Nothing, unless you asked for a plan check | (optional) `make approve SLUG=<slug> STEP=plan` |
-| 2 Preview | `scenes/*.html`, a 720p MP4, contact sheets, and the 1080p verdict | Right story? Facts right? Each frame matches its `show`? Nothing broken? Zero customer data or secrets? Right audience? | `make approve SLUG=<slug> STEP=preview` |
-| 1080p (optional) | The 1080p MP4 and SRT, only when you say yes | Watch it once | (no check) |
+| 1 Intent | `intent.md`: the key message, the viewers, the sources and their roles, the story, the look, what to keep and cut, the evidence, research questions | Right message for the right viewers? Right story and look? Anything to cut or add? | `make approve SLUG=<id> STEP=intent` |
+| 2 Plan | `research.md`, `script.yaml` (per beat: `say` and `show`), the voice, `storyboard.md` | Nothing now: you check it with the preview | (with the preview) |
+| 3 Preview | `scenes/*.html`, a 720p MP4, contact sheets, and the 1080p verdict | The script and the voice in the video? Each frame matches its `show`? Nothing broken? Zero customer data or secrets? Right audience? | `make approve SLUG=<id> STEP=preview` |
+| 4 1080p (optional) | The 1080p MP4 and SRT, only when you say yes | Watch it once | (no check) |
+
+The tool enforces the order: `make narrate`, `make stills`, and `make preview` refuse to run until the intent is approved, and stop again if `intent.md` changes after its approval. A video made before the intent step (no `intent.md`) skips it.
 
 ## How to approve
 
@@ -16,13 +19,11 @@ Pick one:
 - **Dashboard:** press Approve, or type a change and press Request changes ([dashboard.md](dashboard.md)). The button sends the fingerprint of what the page showed; if a file changed since, the approval is refused with "Changed since you looked: check again".
 - **Terminal:** run `make approve SLUG=<slug> STEP=preview`. `make status SLUG=<slug>` shows where a video is.
 
-## A plan check, when you want one
+## The intent check
 
-A long video or a new topic can be worth a look before the scenes: the script is cheap to change, and the scenes are not.
-
-- Dashboard: tick "Stop after the plan" in the New video form. Claude Code: add `--plan-check`.
-- The agent stops after step 1 and asks with `make approve SLUG=<slug> STEP=plan`. Then it goes on to the preview.
-- A plan you approve on its own stays approved on its own. Else the preview approval approves it, marked "approved with the preview".
+- You read one short page. Claude guesses the viewers from the sources, so correct them if the guess is wrong.
+- Request changes (dashboard) or decline the prompt and say what to change (Claude Code): Claude edits `intent.md` and asks again.
+- In the dashboard, the job stops at "Your turn: check the intent". Approve, and Claude goes on to the preview with no other stop.
 
 ## 1080p: the verdict
 
@@ -37,7 +38,7 @@ Each full 720p render ends with a `VERDICT 1080p:` line, also in `make status`, 
 
 ## What an approval covers
 
-- The plan check covers `script.yaml` and, for a topic, `research.md`: approving the plan approves the facts.
+- The intent check covers `intent.md`. The preview approval also approves the plan (`script.yaml` and, for a topic, `research.md`), so it approves the facts.
 - `approved.json` in the video's folder (`projects/<id>/`, or `generated_videos/<slug>/` for an older video) stores a hash of what you approved, the time (UTC), and your user name. It stays on your machine with the video.
 - **Plan** covers `script.yaml`, except each beat's `hold` and the top-level `format`, `look`, `moodboard`, `three`, `captions`, and `engine` lines. Those are timing, look, and rendering, which the preview check covers. The `video_format` line is in the plan: it sets the structure.
 - **Preview** covers `script.yaml`, `style.css`, `scenes/`, and `assets/`, plus the formats you previewed. For a video with a `moodboard:` line, it also covers that moodboard's file, so a change to the moodboard asks for a new preview check.
@@ -47,7 +48,7 @@ Each full 720p render ends with a `VERDICT 1080p:` line, also in `make status`, 
 
 ## Why the agent cannot approve
 
-- `.claude/settings.json` puts `make approve` under `ask`, so Claude Code always asks you. It also denies the agent edits to `approved.json`.
+- `.claude/settings.json` puts `make approve` under `ask`, so Claude Code always asks you. It also denies the agent edits to any `approved.json`.
 - Approvals count only from a file named exactly `approved.json`. On a disk that ignores letter case (the macOS default), an agent could otherwise write `Approved.json` past the deny rule; a case variant counts as not approved, and the next approval deletes it.
 - Work in Claude Code's default permission mode (the project setting). macOS ignores letter case, and path rules such as "ask before editing the Makefile" may not match `MAKEFILE`; in default mode, every edit asks anyway.
 - In headless runs (the dashboard), `ask` means denied. The agent stops and ends with `WAITING FOR APPROVAL: <slug> <step>`.

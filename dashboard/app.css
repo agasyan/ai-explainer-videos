@@ -110,3 +110,77 @@ details.fold > summary { font-size: 15px; font-weight: 600; margin: 8px 0; curso
 .big .transcript { max-height: 420px; margin-top: 0; }
 @media (max-width: 900px) { .big figure { grid-template-columns: 1fr; } }
 img.sheet { width: 100%; border-radius: var(--radius); }
+
+/* New video: a large native dialog (focus trap, Escape, and inert background come from showModal()). */
+.topbar #new-open { margin-left: auto; }
+.newdlg { position: fixed; inset: 0; margin: auto; height: fit-content;  /* centered: the UI kit resets dialog margins */
+          width: min(860px, calc(100vw - 32px)); max-height: calc(100vh - 48px); padding: 20px 22px; border: 1px solid var(--border);
+          border-radius: var(--radius); background: var(--background); color: var(--foreground); }
+.newdlg::backdrop { background: rgb(0 0 0 / 0.45); }
+.dlg-head, .dlg-foot { display: flex; align-items: center; gap: 8px; }
+.dlg-head h2 { margin: 0; flex: 1; }
+.dlg-foot { position: sticky; bottom: -20px; background: var(--background); padding: 10px 0 0; border-top: 1px solid var(--border); }
+.spacer { flex: 1; }
+.group { border: 0; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 10px; }
+.group legend { font-weight: 600; font-size: 14px; padding: 0; margin-bottom: 4px; }
+.flabel { display: block; font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+.srcrow { display: grid; grid-template-columns: 140px minmax(0, 1fr) 150px auto; gap: 8px; align-items: center; }
+@media (max-width: 640px) { .srcrow { grid-template-columns: 1fr 1fr; } .srcrow .value { grid-column: 1 / -1; } }
+.seg { display: inline-flex; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; }
+.seg label { position: relative; }
+.seg input { position: absolute; opacity: 0; inset: 0; }
+.seg span { display: block; padding: 6px 12px; font-size: 13px; cursor: pointer; border-right: 1px solid var(--border); }
+.seg label:last-child span { border-right: 0; }
+.seg input:checked + span { background: var(--primary); color: var(--primary-foreground); }
+.seg input:focus-visible + span, .cards input:focus-visible + .cardbody { outline: 2px solid var(--ring); outline-offset: -2px; }
+.cards { display: grid; gap: 8px; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }
+.cards label { position: relative; display: block; }
+.cards input { position: absolute; opacity: 0; inset: 0; }
+.cardbody { display: flex; flex-direction: column; gap: 4px; height: 100%; padding: 8px; border: 1px solid var(--border);
+            border-radius: var(--radius); font-size: 12px; cursor: pointer; }
+.cardbody strong { font-size: 13px; }
+.cardbody img { height: 54px; object-fit: cover; }
+.cards input:checked + .cardbody { border-color: var(--primary); box-shadow: 0 0 0 1px var(--primary); }
+.voices { display: grid; gap: 6px; grid-template-columns: repeat(auto-fill, minmax(180px, 1fr)); }
+.voicerow { display: flex; align-items: center; gap: 6px; border: 1px solid var(--border); border-radius: var(--radius); padding: 4px 6px; font-size: 13px; }
+.voicerow label { flex: 1; display: flex; gap: 6px; align-items: center; cursor: pointer; }
+.linkbtn { background: none; border: 0; padding: 0; color: var(--muted-foreground); font: inherit; font-size: 13px;
+           text-decoration: underline; cursor: pointer; }
+
+/* intent.md and other agent Markdown, built from text nodes (app.js markdownView) */
+.md { border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 18px; font-size: 14px; line-height: 1.55; }
+.md h2 { font-size: 20px; font-weight: 700; margin: 0 0 8px; }
+.md h3 { font-size: 15px; font-weight: 600; margin: 16px 0 4px; color: var(--muted-foreground); text-transform: uppercase; letter-spacing: 0.04em; }
+.md h4 { font-size: 14px; font-weight: 600; margin: 12px 0 4px; }
+.md p { margin: 0 0 8px; }
+.md ul, .md ol { margin: 0 0 8px; padding-left: 22px; }
+.md li { margin: 2px 0; }
+.md code { font: 12.5px ui-monospace, monospace; background: var(--muted); padding: 1px 5px; border-radius: 4px; }
+.md pre { margin: 0 0 8px; }
+
+/* Agent cards: the badge keeps its line, long titles and addresses wrap inside the card */
+.agent { min-width: 0; }
+.agent .vhead { flex-wrap: wrap; align-items: flex-start; }
+.agent .vhead strong { flex: 1 1 140px; min-width: 0; overflow-wrap: anywhere; }
+.agent .vhead .turn { flex: none; }
+.agent > .muted { overflow-wrap: anywhere; display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }
+
+/* The log as steps (app.js renderLog) */
+.logbar { flex-wrap: wrap; gap: 8px; }
+#log .stepgroup, #log .step { margin: 0 0 4px; }
+#log .log-say.step { font: 13px/1.5 var(--font, sans-serif); color: var(--foreground); }
+#log details.actions { margin: 0 0 6px 184px; }  /* under the text: time + name */
+#log details.actions summary { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#log .action { padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted-foreground); overflow-wrap: anywhere; }
+#log .problem { color: oklch(0.58 0.2 27); font-weight: 600; }
+#log-new { align-self: center; }
+
+/* An agent's task and report: one modal, so nothing in the card grid grows; arrows move to the next agent. */
+.agentdlg { width: min(980px, calc(100vw - 32px)); overflow: auto; }
+.agentdlg .dlg-head .turn { flex: none; }
+.agentdlg h3 { margin: 4px 0; font-size: 14px; }
+.agentdlg .md { max-height: none; }
+.agent .when { font-size: 12px; }
+.agent .when.quiet { color: oklch(0.55 0.16 60); }
+#log .time { display: inline-block; min-width: 66px; color: var(--muted-foreground); font: 11px/1.5 ui-monospace, monospace; }
+.issues { margin-top: 8px; }

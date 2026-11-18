@@ -63,6 +63,23 @@ def same_as_hash(text, spec):
             and (None if want is None else str(want)) == gates.declared_moodboard(text))
 
 
+def copy_template(folder, title):
+    """Fill a video folder from templates/video/ (intent.md, script.yaml, style.css, scenes/), with __TITLE__ set,
+    and an empty sources/. Keeps any file the folder has already."""
+    import html
+    import json
+    template = ROOT / "templates" / "video"
+    for src in sorted(template.rglob("*")):
+        dst = folder / src.relative_to(template)
+        if src.is_dir() or dst.exists():
+            continue
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        text = src.read_text()
+        value = json.dumps(title) if src.suffix == ".yaml" else html.escape(title) if src.suffix == ".html" else title
+        dst.write_text(text.replace("__TITLE__", value))
+    (folder / "sources").mkdir(parents=True, exist_ok=True)
+
+
 def progress(video, step, detail):
     """build/progress.json: what the pipeline is doing now, for the dashboard (it reads it while a job runs)."""
     import json

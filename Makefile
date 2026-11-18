@@ -51,10 +51,12 @@ video:      ## Optional 1080p, after the preview is approved: make video SLUG=dn
 	$(EV) render $(V) --quality 1080p $(OPTS)
 reference:  ## Study a reference video's pacing and look: make reference FILE=ref.mp4
 	$(EV) reference $(call q,FILE)
-transcribe: ## Speech to text: make transcribe FILE=talk.m4a [MODEL=small]
-	$(COMPOSE) run --rm -T ev-online transcribe $(call q,FILE) --model $(if $(value MODEL),$(call q,MODEL),base.en)
+transcribe: ## Speech to text: make transcribe FILE=talk.m4a, or every recording in sources/: SLUG=<id> [MODEL=small]
+	$(COMPOSE) run --rm -T ev-online transcribe $(if $(value FILE),$(call q,FILE),--sources $(V)) --model $(if $(value MODEL),$(call q,MODEL),base.en)
 catalog:    ## Maintainers: check moodboards and video formats, render swatches, write catalog.json
 	docker run --rm --network none --user $(HOST_UID):$(HOST_GID) -v "$(CURDIR)":/work:ro -v "$(CURDIR)/moodboards":/work/moodboards -v "$(CURDIR)/video-formats":/work/video-formats ai-explainer-videos catalog --write
+voices:     ## Maintainers: render the voice samples the dashboard plays, into voices/
+	docker run --rm --network none --user $(HOST_UID):$(HOST_GID) -v "$(CURDIR)":/work:ro -v "$(CURDIR)/voices":/work/voices ai-explainer-videos voices
 sample:     ## Maintainers, on the host: publish an approved video as videos/samples/<slug>: make sample SLUG=dns
 	python3 -I ev/samples.py $(call q,SLUG)
 dashboard:  ## Local web page that runs Claude Code jobs
@@ -62,4 +64,4 @@ dashboard:  ## Local web page that runs Claude Code jobs
 shell:      ## Open a shell inside the image
 	$(COMPOSE) run --rm --entrypoint bash ev
 
-.PHONY: help build doctor test catalog sample new from-html narrate storyboard status approve stills preview video reference transcribe dashboard shell
+.PHONY: help build doctor test catalog voices sample new from-html narrate storyboard status approve stills preview video reference transcribe dashboard shell

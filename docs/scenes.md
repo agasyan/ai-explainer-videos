@@ -105,7 +105,7 @@ Override any variable in the video's `style.css`, but keep the moodboard's contr
 
 ## 3D
 
-Use 3D only for a spatial idea: orientation, rotation, depth, or a mechanism. Text, numbers, timelines, and comparisons stay 2D. The dashboard's "Allow 3D where it explains better" box (ticked by default) sets `three: true` in `script.yaml`.
+Use 3D for a spatial idea (orientation, rotation, depth, a mechanism), or as an infographic with depth: layers of a system, a stack, a flow through stages ([visual-patterns.md](visual-patterns.md), starter `templates/patterns/layers-3d.html`). Text, numbers, timelines, and comparisons stay 2D marks or HTML labels. The dashboard's "Allow 3D where it explains better" box (ticked by default) sets `three: true` in `script.yaml`.
 
 1. The scene gets `treatment: stage-3d` (only moodboards with `three.fit: true` have it) and a one-line `three_why`.
 2. 2 scenes with 3D per part, at most. `make narrate` prints `CHECK` for a third.
@@ -154,7 +154,7 @@ Put the file in the project's `assets/`. Show only what the viewer may see: no c
 
 ## Page sections
 
-`make from-html` writes one scene per section of an HTML page ([from-html.md](from-html.md)). Each scene loads `/ev/page.js` and calls `EV.page`, which shows the section's capture inside `.safe` and moves a camera over it:
+`make from-html` writes `scenes/page-<id>.html`, one per section of an HTML page ([from-html.md](from-html.md)): evidence scenes, for a beat that names a part of the page. Each scene loads `/ev/page.js` and calls `EV.page`, which shows the section's capture inside `.safe` and moves a camera over it:
 
 ```html
 <script src="/ev/ev.js"></script>
@@ -171,6 +171,7 @@ EV.page("s03", { bg: "rgb(255, 255, 255)", w: 832, parts: [/* from build/section
 - A section shorter than the frame sits in the middle and zooms in slowly. A taller one scrolls from its top to its bottom over all of the scene's beats.
 - `p.mark(box, start, end)` draws a box in the accent color. `box` is one of `p.parts` (a table, chart, code block, or sub-heading) or `[x, y, w, h]` in page px; `end` is optional.
 - Keep a mark inside the part of the section the camera shows at that time.
+- `p.zoom(box, start)` moves the camera so the box fills most of the frame, and `p.reset(start)` moves it back. Pass `camera: false` to `EV.page` to keep the section still until the zoom (starter: `templates/patterns/zoom-evidence.html`).
 - Lint skips the capture: it is a picture, not text. Check the contact sheet for small or cut-off text.
 
 ## Check a scene fast
@@ -178,6 +179,8 @@ EV.page("s03", { bg: "rgb(255, 255, 255)", w: 832, parts: [/* from build/section
 `make stills SLUG=<slug> SCENE=<id>` renders only the frame before each next beat, lints it, and prints a contact sheet, in seconds. Use it while you draw; run `make preview` once all scenes pass.
 
 ## Patterns
+
+The full map from content to picture, with a starter scene for each, is [visual-patterns.md](visual-patterns.md). Short forms:
 
 - **Flow:** boxes (`.card`) in a `.row`, with SVG arrows between them drawn by `EV.draw` as each box is named.
 - **Before and after:** two `.card` columns; the "after" column fades in at the word "now".

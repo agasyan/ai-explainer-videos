@@ -15,3 +15,5 @@ videos/samples/**/approved.json
 __pycache__/
 .DS_Store
 .env
+# The dashboard's host-only records (where each source copy came from).
+.dashboard/

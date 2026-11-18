@@ -16,7 +16,7 @@ import urllib.request
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))  # last, so a stray file cannot shadow the standard library
-from ev import projects  # noqa: E402 (standard library only)
+from ev import projects, safe  # noqa: E402 (standard library only)
 
 HOSTS = ("cdnjs.cloudflare.com", "cdn.jsdelivr.net", "unpkg.com", "cdn.tailwindcss.com", "code.jquery.com",
          "fonts.googleapis.com", "fonts.gstatic.com")
@@ -33,11 +33,16 @@ def attr(name):
     return re.compile(rf"""\s{name}\s*=\s*(["'])(.*?)\1""", re.I | re.S)
 
 
+PAGE = "assets/page/index.html"
+
+
 def page_of(video):
-    page = video / "assets" / "page" / "index.html"
-    if not page.is_file():
-        raise SystemExit(f"No page in {video}/assets/page/: run make from-html SLUG={video.name} FILE=<page.html>")
-    return page
+    """The page's text. Every read and write here goes through ev/safe.py: code in the container can change the
+    project, and could put a symlink to a file on your disk where the page or a copy goes."""
+    try:
+        return safe.read(video, PAGE).decode("utf-8", "replace")
+    except OSError:
+        raise SystemExit(f"No page in {video}/assets/page/: run make from-html SLUG={video.name} FILE=<page.html>") from None
 
 
 def allowed(url):
@@ -72,8 +77,8 @@ OPENER = urllib.request.build_opener(Redirects)
 class Vendor:
     """Downloads allowed URLs once each; rewrites url() and @import inside CSS to the local copies."""
 
-    def __init__(self, folder):
-        self.folder, self.done, self.notes = folder, {}, []
+    def __init__(self, video, folder):
+        self.video, self.folder, self.done, self.notes = video, folder, {}, []
 
     def fetch(self, url, depth=0):
         if url in self.done:
@@ -94,8 +99,12 @@ class Vendor:
         self.done[url] = target  # before the CSS pass, so a loop of @imports stops here
         if css and depth < 3:
             data = self.css(data.decode("utf-8", "replace"), url, target, depth + 1).encode()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        target.write_bytes(data)
+        try:
+            safe.write(self.video, target.relative_to(self.video), data)
+        except OSError as e:
+            self.notes.append(f"not copied: {url} ({e})")
+            self.done[url] = None
+            return None
         return target
 
     def css(self, text, base, at, depth):
@@ -111,9 +120,9 @@ class Vendor:
 
 def vendor(video):
     """Copy the page's CDN files and point the page at them. A second run finds nothing to fetch."""
-    page = page_of(video)
-    html = page.read_text(errors="replace")
-    v = Vendor(page.parent / "vendor")
+    html = page_of(video)
+    page = video / PAGE
+    v = Vendor(video, page.parent / "vendor")
 
     def tag(m):
         text, name = m[0], m[1].lower()
@@ -141,11 +150,10 @@ def vendor(video):
 
     html = TAG.sub(tag, html)
     html = STYLE.sub(lambda m: m[1] + v.css(m[2], "https://page.invalid/", page, 1) + m[3], html)
-    page.write_text(html)
+    safe.write(video, PAGE, html)
     copied = {u: str(p.relative_to(page.parent)) for u, p in v.done.items() if p}
     if copied:
-        (page.parent / "vendor").mkdir(exist_ok=True)
-        (page.parent / "vendor" / "vendor.json").write_text(json.dumps(copied, indent=1) + "\n")
+        safe.write(video, "assets/page/vendor/vendor.json", json.dumps(copied, indent=1) + "\n")
     print(f"DONE vendor: {len(copied)} file{'s' if len(copied) != 1 else ''} copied into assets/page/vendor/")
     for note in dict.fromkeys(v.notes):
         print(f"  NOTE {note}")

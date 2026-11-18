@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; }
+table { border-collapse: collapse; font: 500 34px var(--font); width: 100%; }
+th, td { padding: 16px 24px; text-align: left; border-bottom: 3px solid var(--line); }
+th { color: var(--muted); font-weight: 600; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <table>
+      <thead class="head"><tr><th>Option</th><th>Load time</th><th>Cost</th></tr></thead>
+      <tbody>
+        <tr class="r"><td>A: no cache</td><td>840 ms</td><td>low</td></tr>
+        <tr class="r win"><td>B: a cache</td><td>120 ms</td><td>low</td></tr>
+        <tr class="r"><td>C: a CDN</td><td>200 ms</td><td>high</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+<script>
+// Pattern: progressive table (docs/visual-patterns.md). Beat a: the header, then rows in story order. Beat b: the winner row lights up.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".head", { opacity: 0, duration: 0.4 }, at("a"));
+EV.from(".r", { opacity: 0, y: 16, duration: 0.4, stagger: 0.35 }, at("a") + 0.4);
+EV.to(".win", { backgroundColor: "var(--panel)", color: "var(--accent)", duration: 0.4 }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

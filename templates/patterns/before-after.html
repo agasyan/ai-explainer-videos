@@ -1,0 +1,41 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; align-items: stretch; gap: 34px; }  /* tracks fill the width */
+.item { display: grid; grid-template-columns: 320px 1fr; gap: 24px; align-items: center; }
+.track { position: relative; height: 8px; background: var(--line); border-radius: 4px; }
+.dot { position: absolute; top: -18px; width: 44px; height: 44px; margin-left: -22px; border-radius: 50%; background: var(--accent); }
+.axis { display: grid; grid-template-columns: 320px 1fr; gap: 24px; }
+.axis div { display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="item"><span class="label">Cache hits</span><div class="track"><div class="dot d1" style="left: 20%"></div></div></div>
+    <div class="item"><span class="label">Page load time</span><div class="track"><div class="dot d2" style="left: 70%"></div></div></div>
+    <div class="item"><span class="label">Support tickets</span><div class="track"><div class="dot d3" style="left: 60%"></div></div></div>
+    <div class="axis"><span></span><div><span class="small">low</span><span class="small">high</span></div></div>
+  </div>
+</div>
+<script>
+// Pattern: before and after (dumbbell) (docs/visual-patterns.md). Beat a: each item at its before value. Beat b: the same dots slide to after.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".dot", { opacity: 0, scale: 0.5, duration: 0.4 }, at("a"));
+// the same dot moves, so the eye follows it: before to after, all at once. Values are shares of the track (0 to 1).
+const track = document.querySelector(".track").clientWidth;
+const after = { ".d1": 0.85, ".d2": 0.30, ".d3": 0.15 };
+const before = { ".d1": 0.20, ".d2": 0.70, ".d3": 0.60 };  // the same shares as each dot's left in the HTML
+for (const [dot, to] of Object.entries(after))
+  EV.to(dot, { x: (to - before[dot]) * track, duration: 1, ease: "power2.inOut" }, at("b"));
+EV.ready();
+</script>
+</body>
+</html>

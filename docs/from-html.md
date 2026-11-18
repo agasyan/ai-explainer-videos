@@ -1,15 +1,17 @@
 # From an HTML page
 
-Turn a report, a docs page, or an artifact into a narrated video of its own sections. Like any new video, it is a project: `projects/<YYYYMMDD>-<name>/` holds the copied page, its captures, the script, and the renders. The agent writes only the narration: each scene shows a capture of one section, with a camera that scrolls it and highlights on its tables, charts, and code.
+An HTML page (a report, a docs page, a claude.ai artifact) is a **source**, not the video. Claude reads it, writes an intent card for your check, and then retells its point in its own story: shorter and simpler, with diagrams, stat cards, comparisons, and 3D where it helps ([visual-patterns.md](visual-patterns.md)). It does not scroll the page. Where a beat needs the evidence, a scene shows one part of the real page and zooms into it.
+
+Like any new video, it is a project: `projects/<YYYYMMDD>-<name>/` holds the copied page, its text, its captures, the intent, the script, and the renders.
 
 ## Start
 
 | | Dashboard | Claude Code | By hand |
 |---|---|---|---|
-| Start | Paste the page's path as the source, press Start | `/explainer-video ~/reports/q3-review.html` | `make from-html SLUG=q3 FILE=~/reports/q3-review.html` (it prints the project id, for example `20261118-q3`) |
-| Then | Approve the 720p video | Approve the 720p video | Write the narration, then `make narrate`, `make preview`, `make approve` |
+| Start | **+ New video**, a source row of kind HTML page, press Start video | `/explainer-video ~/reports/q3-review.html` | `make from-html SLUG=q3 FILE=~/reports/q3-review.html` (it prints the project id, for example `20261118-q3`) |
+| Then | Approve the intent, then the 720p video | Approve the intent, then the 720p video | Fill in `intent.md`, approve it, write the script and scenes, then `make narrate`, `make preview`, `make approve` |
 
-The path can be absolute or start with `~`. In the dashboard, a relative path is read from the Extra folder field. A page behind a sign-in: save it as HTML first, or use a connector's download. Do not work around the sign-in.
+Give the full path: it starts with `/` or `~`. A page behind a sign-in: save it as HTML first, or use a connector's download. Do not work around the sign-in. One HTML page per video; add other pages as files.
 
 ## What happens
 
@@ -23,8 +25,8 @@ projects/<id>/assets/page/index.html
 assets/page/vendor/...
    │  3 sections (container with no network): freeze the page, find sections, capture each at 2x
    ▼
-assets/page/shots/<format>/<id>.png + build/sections.json + script.yaml + scenes/<id>.html
-   │  4 the agent: brief and narration from build/sections.json
+assets/page/shots/<format>/<id>.png + sources/page.md + scenes/page-<id>.html + the template
+   │  4 the agent: intent.md (your check), then its own story, script, and drawn scenes
    ▼
 make narrate -> make preview -> your check
 ```
@@ -37,17 +39,18 @@ make narrate -> make preview -> your check
    - else the whole page, as one tall scene.
 
    A title area above the first section becomes scene `s00`. Each section is captured at 2x (a section over 8000 px tall at 1x), so zoomed text stays sharp. `build/sections.json` lists each section's heading, text (2000 characters at most), size, and parts: tables, charts, code blocks, images, and sub-headings, with their boxes.
-4. **Draft.** When they do not exist yet, it writes `script.yaml` (one scene per section, `treatment: page`, `say: (fill in)`), `style.css`, and `scenes/<id>.html`. Run `make from-html SLUG=<project id>` again to capture the page again (for a new format, or after you edit `assets/page/index.html`): it keeps your script and scenes.
+4. **Project files.** Where a file is missing, it starts the project from `templates/video/` (`intent.md`, `script.yaml`, `style.css`, `scenes/`). It writes the page's text, section by section, to `sources/page.md`, adds the page to `sources/index.md`, and writes `scenes/page-<id>.html` for each section: a ready scene that shows that part of the page. Run `make from-html SLUG=<project id>` again to capture the page again (for a new format, or after you edit `assets/page/index.html`): it keeps your intent, script, and scenes.
 
-## Write the narration
+## Retell it
 
-- Read `build/sections.json`; open `assets/page/index.html` for detail. State only what the page says.
-- One scene per section, in page order. Delete a scene to skip its section. Give a long section 2 or 3 beats: the camera scrolls over all of a scene's beats, so more words mean a slower scroll.
-- Highlight a part when a beat names it: `p.mark(p.parts[n], EV.at(beat, "word"))` in the scene ([scenes.md](scenes.md#page-sections)).
-- The look comes from the page. `moodboard:` sets only the captions and the highlight color.
+- Read `sources/page.md`; open `assets/page/index.html` for detail. State only what the page says, unless web research is on.
+- Fill in `intent.md`: the key message, the viewers, the story in a video format's acts, the look, what to keep and cut, and the evidence to show. Then ask for the intent check.
+- Tell it in the acts, not in the page's order. A decision: the verdict, the options side by side, the evidence for each criterion, the verdict again and the ask ([visual-patterns.md](visual-patterns.md)).
+- Evidence: use a `scenes/page-<id>.html` scene (scene id `page-<id>`, `treatment: page`) only where a beat names a table, chart, or code block. Zoom into it with `p.zoom`, and mark it with `p.mark` ([scenes.md](scenes.md#page-sections)).
+- A page tour, every page scene in page order, is only for a request that asks for one.
 
 ## Rules
 
 - **The capture shows the page as it is.** Before you approve, check every frame for customer data, personal names, booking references, and links to private threads. Delete or redraw a section that shows them.
-- **1080p.** The verdict for a page video is "worth it for big screens": page text is small. 720p is fine on a laptop or phone.
+- **1080p.** A video with page scenes gets the verdict "worth it for big screens": page text is small. 720p is fine on a laptop or phone.
 - **Limits:** 30 sections, 20 MB per copied file, 200 MB in all, 15 MB per CDN file.

@@ -20,9 +20,6 @@
     "ask": [
       "Bash(make approve:*)",
       "Bash(make *approve*)",
-      "Bash(make auto:*)",
-      "Bash(make * auto)",
-      "Bash(make * auto *)",
       "Edit(**/Makefile)",
       "Edit(**/makefile)",
       "Edit(**/GNUmakefile)",
@@ -42,6 +39,7 @@
       "Edit(**/video-formats/**)"
     ],
     "deny": [
+      "Edit(**/approved.json)",
       "Edit(**/videos/*/approved.json)",
       "Edit(**/generated_videos/*/approved.json)",
       "Bash(make * -*)",

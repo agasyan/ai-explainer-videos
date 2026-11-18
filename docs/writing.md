@@ -60,6 +60,10 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 - Same color, same concept, for the whole video.
 - The screen shows keywords; the voice says the sentence.
 
+## Retell a source, never replay it
+
+A page, a doc, a PR, or a recording is a source. Retell its point in the video format's acts, in the order that makes the point clear, not in the source's order. Say less about each part of a long source; one idea per beat. Show pictures from [visual-patterns.md](visual-patterns.md), and show the source itself only as evidence for a beat.
+
 ## Long topics: multi-part videos
 
 A video is one part by default: a long source gets less said about each part of it, not a split. Pick its length instead: `< 1 min`, `1-3 min` (the default), or `3-5 min` (`--length under-1m|1-3m|3-5m` in Claude Code). Split only when you ask for a length per part (`--parts 60s`). Then each part stays under that length and the limits below, and the plan names the parts.

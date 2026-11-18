@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="stylesheet" href="/ev/base.css">
+<link rel="stylesheet" href="/ev/theme.css">
+<link rel="stylesheet" href="../style.css">
+<script src="/ev/ev.js"></script>
+<style>
+.safe { justify-content: center; }
+.flow { display: flex; align-items: center; justify-content: center; gap: 12px; }
+.arrow path { fill: none; stroke: var(--accent); stroke-width: 8; stroke-linecap: round; stroke-linejoin: round; }
+</style>
+</head>
+<body>
+<div class="stage">
+  <div class="safe">
+    <div class="flow">
+      <div class="card label s1">Request</div>
+      <svg class="arrow a1" viewBox="0 0 120 60" width="120" height="60"><path d="M 8 30 H 104 M 84 10 L 108 30 L 84 50"/></svg>
+      <div class="card label s2">Check the cache</div>
+      <svg class="arrow a2" viewBox="0 0 120 60" width="120" height="60"><path d="M 8 30 H 104 M 84 10 L 108 30 L 84 50"/></svg>
+      <div class="card label s3">Send the answer</div>
+    </div>
+  </div>
+</div>
+<script>
+// Pattern: step flow (docs/visual-patterns.md). Beats a, b, c: one step each, joined by an arrow as the voice names it.
+// Copy it to scenes/<id>.html, then change the beat ids, the words, and the numbers to your script's.
+const { at } = EV;
+EV.from(".s1", { opacity: 0, y: 20, duration: 0.4 }, at("a"));
+EV.draw(".a1 path", at("b"), 0.5);
+EV.from(".s2", { opacity: 0, y: 20, duration: 0.4 }, at("b") + 0.3);
+EV.draw(".a2 path", at("c"), 0.5);
+EV.from(".s3", { opacity: 0, y: 20, duration: 0.4 }, at("c") + 0.3);
+EV.ready();
+</script>
+</body>
+</html>

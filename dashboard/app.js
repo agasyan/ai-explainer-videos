@@ -7,10 +7,18 @@ const el = (tag, { dataset = {}, ...props } = {}, kids = []) => {
   e.append(...kids);
   return e;
 };
+const BOOT = document.querySelector('meta[name="ev-boot"]').content;
+// Every POST answers {error} on failure, so a caller can always show it: a refused token means the dashboard
+// restarted after this page loaded (a new run has a new token).
 const post = (url, body) => fetch(url, { method: "POST", body: JSON.stringify(body),
-  headers: { "Content-Type": "application/json", "X-EV-Token": TOKEN } }).then(r => r.json());
+  headers: { "Content-Type": "application/json", "X-EV-Token": TOKEN } }).then(async r => {
+  if (r.status === 403) return { error: "The dashboard restarted after this page loaded. Reload the page (Cmd+R), then try again." };
+  try { return await r.json(); } catch { return { error: `The dashboard answered ${r.status}. Reload the page, then try again.` }; }
+}).catch(() => ({ error: "Could not reach the dashboard. Is make dashboard still running?" }));
 const clock = s => { const t = Math.max(0, Math.round(s)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 const since = t => clock(Date.now() / 1000 - t);
+const hms = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const ago = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`; };
 
 // A video with its subtitle track (switch it on in the player) and a transcript: click a line to jump there.
 function player(src) {
@@ -49,10 +57,74 @@ function videosView(videos, sheets, note) {
     ...(videos.length > 1 ? [el("div", { className: "tabbar", role: "tablist" }, tabs)] : []), stage];
 }
 
+// ---- md: start ----
+// A small Markdown reader for agent-written files such as intent.md: headings, paragraphs, lists, bold, code, and
+// http(s) links. It returns plain data; markdownView() builds elements with text nodes only, never HTML.
+const MD = (() => {
+  const inline = src => {
+    const out = [], re = /\*\*([^*]+)\*\*|`([^`]+)`|\[([^\]]+)\]\((https?:\/\/[^)\s]+)\)/g;
+    let last = 0, m;
+    while ((m = re.exec(src))) {
+      if (m.index > last) out.push({ tag: "text", text: src.slice(last, m.index) });
+      out.push(m[1] !== undefined ? { tag: "strong", text: m[1] } : m[2] !== undefined ? { tag: "code", text: m[2] }
+        : { tag: "a", text: m[3], href: m[4] });
+      last = re.lastIndex;
+    }
+    if (last < src.length) out.push({ tag: "text", text: src.slice(last) });
+    return out;
+  };
+  const parse = src => {
+    const blocks = [];
+    let para = [], list = null, fence = null;
+    const flush = () => { if (para.length) blocks.push({ tag: "p", kids: inline(para.join(" ")) }); para = []; };
+    const endList = () => {
+      if (list) blocks.push({ tag: list.tag, start: list.start, items: list.items.map(it => ({ kids: inline(it.text),
+        sub: it.sub && { tag: it.sub.tag, items: it.sub.items.map(inline) } })) });
+      list = null;
+    };
+    for (const line of String(src || "").replace(/\r/g, "").split("\n")) {
+      if (fence) {
+        if (/^```/.test(line)) { blocks.push({ tag: "pre", text: fence.join("\n") }); fence = null; } else fence.push(line);
+        continue;
+      }
+      const head = line.match(/^(#{1,4})\s+(.*)$/), item = line.match(/^(\s*)(?:[-*]|(\d+)\.)\s+(.*)$/);
+      if (/^```/.test(line)) { flush(); endList(); fence = []; }
+      else if (head) { flush(); endList(); blocks.push({ tag: `h${Math.min(4, head[1].length + 1)}`, kids: inline(head[2]) }); }
+      else if (item) {
+        flush();
+        const tag = item[2] ? "ol" : "ul", last = list && list.items[list.items.length - 1];
+        if (last && item[1].length >= 2) {  // an indented item: one level under the item above
+          if (!last.sub) last.sub = { tag, items: [] };
+          last.sub.items.push(item[3]);
+        } else {
+          if (!list || list.tag !== tag) { endList(); list = { tag, start: item[2] ? Number(item[2]) : 1, items: [] }; }
+          list.items.push({ text: item[3], sub: null });
+        }
+      } else if (list && /^\s{2,}\S/.test(line)) {  // a wrapped line: it belongs to the last item
+        const last = list.items[list.items.length - 1];
+        if (last.sub) last.sub.items[last.sub.items.length - 1] += " " + line.trim(); else last.text += " " + line.trim();
+      }
+      else if (!line.trim()) { flush(); endList(); }
+      else { endList(); para.push(line.trim()); }
+    }
+    if (fence) blocks.push({ tag: "pre", text: fence.join("\n") });
+    flush();
+    endList();
+    return blocks;
+  };
+  return { parse };
+})();
+// ---- md: end ----
+
 // Agent-written data (storyboard, picks, research) becomes text nodes only; a link renders only for http(s).
 const text = value => document.createTextNode(String(value ?? ""));
 const link = (label, href) => /^https?:\/\//.test(href)
   ? el("a", { href, textContent: label, target: "_blank", rel: "noopener noreferrer" }) : text(label);
+const mdNode = n => (n.tag === "text" ? text(n.text) : n.tag === "a" ? link(n.text, n.href) : el(n.tag, { textContent: n.text }));
+const markdownView = src => MD.parse(src).map(b => (b.tag === "pre" ? el("pre", { textContent: b.text })
+  : b.items ? el(b.tag, { start: b.start }, b.items.map(it => el("li", {}, [...it.kids.map(mdNode),
+      ...(it.sub ? [el(it.sub.tag, {}, it.sub.items.map(kids => el("li", {}, kids.map(mdNode))))] : [])])))
+  : el(b.tag, {}, b.kids.map(mdNode))));
 const table = (head, rows) => el("div", { className: "table-wrap" }, [el("table", { className: "table" }, [
   el("thead", {}, [el("tr", {}, head.map(h => el("th", { textContent: h })))]),
   el("tbody", {}, rows.map(r => el("tr", {}, r.map(c => el("td", {}, [c instanceof Node ? c : text(c)])))))])]);
@@ -106,18 +178,22 @@ const TURN = { working: "Working", you: "Your turn", next: "Next", done: "Done" 
 
 function steps(c) {
   const st = c.status, work = c.running;
-  const plan = st.plan === "approved" ? ["done", "approved"]
+  const intent = st.intent === "none" ? ["done", "none: an older video"] : st.intent === "approved" ? ["done", "approved"]
+    : ["ready", "changed"].includes(st.intent) ? ["you", st.intent === "changed" ? "changed: check again" : "your check"]
+    : work ? ["working", "Claude is reading the sources"] : ["next", "not ready"];
+  const intentOk = ["approved", "none"].includes(st.intent);
+  const plan = st.plan === "approved" ? ["done", "approved with the preview"]
     : ["ready", "changed"].includes(st.plan) ? ["done", "ready: you check it with the preview"]
-    : work ? ["working", "Claude is working"] : ["next", "not ready"];
+    : !intentOk ? ["locked", "after the intent"] : work ? ["working", "Claude is working"] : ["next", "next"];
   const preview = st.preview === "approved" ? ["done", "approved: the final video"]
     : ["ready", "changed"].includes(st.preview) ? ["you", st.preview === "changed" ? "changed: check again" : "your check"]
-    : work ? ["working", "Claude is working"] : ["next", "next"];
+    : !intentOk ? ["locked", "after the intent"] : work ? ["working", "Claude is working"] : ["next", "next"];
   const [ready, total] = c.parts || [0, 0];
   const hd = c.finals ? ["done", "ready to download"] : st.preview === "approved"
     ? (work ? ["working", `rendering: ${ready} of ${total} parts ready`] : ["next", "optional: see the verdict"])
     : ["locked", "optional, after the preview"];
-  return [["1 Plan", "research, script, voice", ...plan], ["2 Preview", "scenes, the 720p video", ...preview],
-          ["3 1080p", "optional", ...hd]];
+  return [["1 Intent", "message, viewers, story, look", ...intent], ["2 Plan", "research, script, voice", ...plan],
+          ["3 Preview", "scenes, the 720p video, the script and voice", ...preview], ["4 1080p", "optional", ...hd]];
 }
 
 const stepper = c => steps(c).map(([name, what, state, note]) => el("li", { className: `step step-${state}` }, [
@@ -199,7 +275,8 @@ function actions(v, c) {
   };
   $("d-actions").replaceChildren(
     ...(c.turn === "next" && !c.running ? [button("Continue", null, go("continue"))] : []),
-    ...(v.has_scenes && ["waiting", "changed"].includes(v.status.preview) && !c.running
+    ...(v.has_scenes && ["approved", "none"].includes(v.status.intent)  // no voice or picture before the intent check
+        && ["waiting", "changed"].includes(v.status.preview) && !c.running
       ? [button(`${v.status.preview === "changed" ? "Render 720p again" : "Render 720p"} (${v.estimate["720p"]})`, "secondary", go("preview"))] : []),
     ...(previewOk ? [button(`${c.finals ? "Render 1080p again" : "Render 1080p (optional)"} (${v.estimate["1080p"]})`, "secondary", go("final"))] : []),
     ...v.downloads.map(u => { const m = u.match(/-part(\d+)-(landscape|story)-(720p|1080p)/); return el("a", { className: "btn", dataset: { variant: "outline" },
@@ -210,18 +287,27 @@ function actions(v, c) {
 
 function checkPane(v, c) {
   // The preview is the one check. Before it exists, the plan shows here, and approving it early is optional.
-  const st = v.status, waitingPreview = !["ready", "changed", "approved"].includes(st.preview);
-  const step = ["ready", "changed"].includes(st.preview) ? "preview" : st.preview === "approved" ? null : "plan";
-  const can = Boolean(step) && ["ready", "changed"].includes(st[step]) && (step === "preview" || waitingPreview);
+  // Two checks: the intent first, then the preview (which covers the script and the voice).
+  const st = v.status;
+  const step = ["ready", "changed"].includes(st.intent) ? "intent" : ["ready", "changed"].includes(st.preview) ? "preview"
+    : st.preview === "approved" ? null : "plan";
+  const can = step === "intent" || step === "preview";
   const withPlan = step === "preview" && st.plan !== "approved";
   const key = JSON.stringify([v.status, v.fingerprints, v.storyboard && v.storyboard.source, v.storyboard_stale,
-    v.previews, v.contacts, v.finals, v.audio, v.verdict, c.running]);
+    v.previews, v.contacts, v.finals, v.audio, v.verdict, v.issues, c.running]);
   if (key !== shownCheck) {  // rebuilding would stop a playing video, so only when something changed
     shownCheck = key;
     const script = el("details", {}, [el("summary", { textContent: "script.yaml" }), el("pre", { textContent: v.script })]);
     const wait = msg => el("div", { className: "waiting" }, [el("p", { textContent: msg })]);
     let body;
-    if (step === "plan") {
+    if (step === "intent") {
+      body = [el("p", { className: "muted", textContent: "What the video will say, to whom, and how. The script, the voice, and the scenes come after you approve it, and you check them with the 720p video." }),
+        el("article", { className: "md" }, markdownView(v.intent || "")),
+        el("details", {}, [el("summary", { textContent: "intent.md as text" }), el("pre", { textContent: v.intent || "" })])];
+    } else if (step === "plan" && st.intent === "waiting") {
+      body = [wait(c.running ? "Claude is reading the sources and writing the intent: the key message, the viewers, the story, and the look."
+                             : "No intent yet. Press Continue.")];
+    } else if (step === "plan") {
       body = v.storyboard ? [...(v.audio ? [el("audio", { src: v.audio, controls: true })] : []), ...storyboardView(v), script]
         : [wait(c.running ? "Claude is making the plan: research, picks, script, and voice. The storyboard shows here when the voice is ready."
                           : "No plan yet. Press Continue."),
@@ -237,25 +323,42 @@ function checkPane(v, c) {
           : "Approved: this 720p video is the final. Share it with the audience you approved." }),
         ...(v.verdict && !v.finals.length ? [el("p", {}, [el("strong", { textContent: `1080p: ${v.verdict["1080p"]}. ` }), text(v.verdict.why)])] : [])];
     }
+    // issues.md: what slowed Claude down in each step, and an idea to fix it. It is about the tool, not the video.
+    const issues = (v.issues || "").replace(/^# .*\n+/, "");
+    if (issues.trim()) body.push(el("details", { className: "fold issues" }, [
+      el("summary", { textContent: `Issues Claude met, and ideas to fix them (${(issues.match(/^## /gm) || []).length || 1} step${(issues.match(/^## /gm) || []).length === 1 ? "" : "s"})` }),
+      el("article", { className: "md" }, markdownView(issues))]));
     $("check-body").replaceChildren(...body);
     $("decide").hidden = !can && c.running;
     $("check-question").hidden = !can;
     $("check-text").textContent = can ? `Check the ${step}${step === "preview" && withPlan ? " and the plan" : ""}: ${v.checklist[step]}` : "";
+    // The preview check ends the work, so its buttons say what comes next: keep the 720p, or render 1080p too.
+    const preview = step === "preview" && v.previews.length > 0;
     $("approve").hidden = !can;
-    $("approve").textContent = `Approve the ${step}${step === "preview" && withPlan ? " and the plan" : ""}`;
+    $("approve").textContent = preview ? "Approve and download 720p" : `Approve the ${step}${step === "preview" && withPlan ? " and the plan" : ""}`;
+    $("approve-hd").hidden = !preview;
+    $("approve-hd").textContent = `Approve and render 1080p (${v.estimate["1080p"]})`;
     $("approve-note").hidden = !can;
-    $("approve-note").textContent = step === "plan" ? "Optional: Claude writes the scenes and renders the 720p preview either way."
-      : "This 720p video is the final. 1080p is optional after it.";
+    $("approve-note").textContent = step === "intent" ? "Claude then writes the script, makes the voice, draws the scenes, and renders 720p."
+      : `Approving covers the video${withPlan ? ", the script, and the voice" : ""}. ${v.verdict ? `1080p: ${v.verdict["1080p"]}. ${v.verdict.why}` : "1080p is optional."}`;
     $("check-question").hidden = !can;
-    $("approve").onclick = async () => {  // sends the fingerprint shown, so a change after this view is refused
+    const approve = then => async () => {  // sends the fingerprint shown, so a change after this view is refused
       const r = await post(`/api/videos/${slug}/approve`, { step, expected: v.fingerprints[step] });
       if (r.error) return alert(r.error);
       shownCheck = "";
       if (r.id) { run = r.id; lane = null; }
+      if (then === "download") v.previews.forEach(u => { const a = el("a", { href: `${u}?download=1`, download: "" }); document.body.append(a); a.click(); a.remove(); });
+      if (then === "1080p") {
+        const job = await post(`/api/videos/${slug}/final`, {});
+        if (job.error) return alert(job.error);
+        run = job.id; lane = null; tab = "activity"; showTab();
+      }
       refresh();
     };
+    $("approve").onclick = approve(preview ? "download" : null);
+    $("approve-hd").onclick = approve("1080p");
   }
-  $("reply").hidden = c.running || !v.script;
+  $("reply").hidden = c.running || !can;  // changes go with a check: the intent or the preview
 }
 
 $("reply").onsubmit = async e => {
@@ -270,14 +373,13 @@ $("reply").onsubmit = async e => {
 // ---------- Activity: each run, each agent, and its log ----------
 
 let run = null, runSince = 0, runEvents = [], lane = null, polling = false;
-const opened = new Set();  // task and report panels you opened stay open across refreshes
 
-function pickRun(id) { run = id; runSince = 0; runEvents = []; lane = null; $("log").replaceChildren(); }
+function pickRun(id) { run = id; runSince = 0; runEvents = []; lane = null; logSeen = 0; openSteps.clear(); $("log").replaceChildren(); }
 
 function runsBar(jobs) {
   $("runs").replaceChildren(...(jobs.length ? jobs.map((j, i) => el("button", { type: "button",
     className: `runchip${j.id === run ? " selected" : ""}`, onclick: () => { pickRun(j.id); runsBar(jobs); pollRun(true); },
-    textContent: `${j.system ? "Render" : "Claude"} · ${new Date(j.started * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })} · ${
+    textContent: `${j.label ? `[${j.label}] ` : ""}${j.system ? "Render" : "Claude"} · ${new Date(j.started * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", hourCycle: "h23" })} · ${
       !j.done ? `running ${since(j.started)}` : j.code ? `stopped (exit ${j.code})` : `done in ${clock(j.ended - j.started)}`}${i === 0 ? " · latest" : ""}` }))
     : [el("div", { className: "empty", textContent: "No runs for this video yet in this dashboard session." })]));
 }
@@ -289,24 +391,61 @@ function agentCard(r, id, a) {
   const steps = main ? runEvents.filter(e => e.agent === "main" && e.kind === "tool").length : a.steps;
   const state = main ? (!r.done ? "running" : r.code ? "stopped" : "done") : (!a.done ? "running" : a.error ? "error" : "done");
   const took = main ? (r.ended || Date.now() / 1000) - r.started : (a.ended || Date.now() / 1000) - a.started;
-  const panel = (key, label, body) => {
-    const d = el("details", { open: opened.has(`${id}:${key}`) }, [el("summary", { textContent: label }), el("pre", { textContent: body })]);
-    d.ontoggle = () => (d.open ? opened.add(`${id}:${key}`) : opened.delete(`${id}:${key}`));
-    return d;
-  };
+  const last = lastTime(id), quiet = state === "running" && last && Date.now() / 1000 - last > 120;
   return el("div", { className: `agent agent-${state}${lane === id ? " selected" : ""}` }, [
     el("div", { className: "vhead" }, [el("strong", { textContent: main ? (r.system ? "Render job (make)" : "Main Claude") : a.name }),
       el("span", { className: `turn turn-${state === "running" ? "working" : state === "done" ? "done" : "you"}`,
         textContent: `${state}${!main && a.background ? " in background" : ""} · ${clock(took)}` })]),
     el("div", { className: "muted", textContent: main && r.system ? `${runEvents.length} output lines · ${r.prompt}`
       : `${steps} tool call${steps === 1 ? "" : "s"} · now: ${main ? r.now : a.last}` }),
-    el("div", { className: "buttons" }, [el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
-      textContent: lane === id ? "Showing its steps" : "Show its steps", onclick: () => { lane = id; renderLog(r); renderAgents(r); } })]),
-    ...(!main && a.task ? [panel("task", "Task it was given", a.task)] : []),
-    ...(!main && a.report ? [panel("report", "Its report", a.report)] : [])]);
+    ...(last ? [el("div", { className: `muted when${quiet ? " quiet" : ""}`,
+      textContent: `last step ${hms(last)}, ${ago(last)}${quiet ? ": no new step for a while (it can be thinking or rendering)" : ""}` })] : []),
+    el("div", { className: "buttons" }, [
+      el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
+        textContent: lane === id ? "Showing its steps" : "Show its steps", onclick: () => { lane = id; renderLog(r); renderAgents(r); } }),
+      ...(!main && (a.task || a.report) ? [el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
+        textContent: a.report ? "Task and report" : "Task", onclick: () => openAgent(id) })] : [])])]);
 }
 
+// One modal for a sub-agent's task and report. It updates while it is open, and the arrow keys move to the
+// next agent, so you can read each one without opening and closing panels in the cards.
+let shownAgent = null, shownAgentKey = "";
+const lastTime = id => { for (let i = runEvents.length - 1; i >= 0; i--) if ((runEvents[i].agent || "main") === id && runEvents[i].t) return runEvents[i].t; return 0; };
+function openAgent(id) { shownAgent = id; shownAgentKey = ""; fillAgent(lastRun); if (!$("agent-dialog").open) $("agent-dialog").showModal(); }
+function fillAgent(r) {
+  if (!r || !shownAgent || !r.agents[shownAgent]) return;
+  const a = r.agents[shownAgent], key = JSON.stringify([shownAgent, a.done, a.error, a.steps, a.last, (a.report || "").length]);
+  if (key === shownAgentKey) return;  // rebuilding would jump the scroll while you read
+  shownAgentKey = key;
+  const state = !a.done ? "running" : a.error ? "error" : "done";
+  $("agent-title").textContent = a.name;
+  $("agent-state").className = `turn turn-${state === "running" ? "working" : state === "done" ? "done" : "you"}`;
+  $("agent-state").textContent = `${state} · ${clock((a.ended || Date.now() / 1000) - a.started)}`;
+  const last = lastTime(shownAgent);
+  $("agent-meta").textContent = `Started ${hms(a.started)}${a.ended ? `, ended ${hms(a.ended)}` : ""} · ${a.steps} tool call${a.steps === 1 ? "" : "s"}`
+    + (last ? ` · last step ${hms(last)}` : "") + (a.last ? ` · now: ${a.last}` : "");
+  $("agent-body").replaceChildren(
+    ...(a.report ? [el("h3", { textContent: "Its report" }), el("article", { className: "md" }, markdownView(a.report))] : []),
+    ...(a.task ? [el("details", { open: !a.report }, [el("summary", { textContent: "Task it was given" }),
+      el("article", { className: "md" }, markdownView(a.task))])] : []));
+}
+function stepAgent(dir) {
+  const ids = Object.keys((lastRun && lastRun.agents) || {}).filter(k => lastRun.agents[k].task || lastRun.agents[k].report);
+  const i = ids.indexOf(shownAgent);
+  if (ids.length) openAgent(ids[(i + dir + ids.length) % ids.length]);
+}
+$("agent-close").onclick = () => $("agent-dialog").close();
+$("agent-prev").onclick = () => stepAgent(-1);
+$("agent-next").onclick = () => stepAgent(1);
+$("agent-steps").onclick = () => { lane = shownAgent; $("agent-dialog").close(); pollRun(true); };
+$("agent-dialog").onclick = e => { if (e.target === $("agent-dialog")) $("agent-dialog").close(); };  // a click outside
+$("agent-dialog").onkeydown = e => {
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); stepAgent(e.key === "ArrowLeft" ? -1 : 1); }
+};
+
 function renderAgents(r) {
+  lastRun = r;
+  if ($("agent-dialog").open) fillAgent(r);
   const subs = Object.entries(r.agents || {});
   $("agents").replaceChildren(agentCard(r, "main", null), ...subs.map(([id, a]) => agentCard(r, id, a)));
   $("log-filter-label").textContent = lane ? `Steps of: ${agentName(r, lane)}` : `All agents (${subs.length} sub-agent${subs.length === 1 ? "" : "s"})`;
@@ -314,13 +453,61 @@ function renderAgents(r) {
 }
 $("log-all").onclick = () => { lane = null; pollRun(true); };
 
+// The log as steps: each thing Claude says opens a step, and the actions after it fold under one summary line
+// ("4 actions"). Problems (a refused tool, a failed helper, an error) stay open and red. Filters: everything, what
+// Claude says, or problems. While you read higher up, the log stays still, and a button counts the new lines.
+const PROBLEM = /^(Not allowed|Denied|Failed|Sub-agent failed|Sub-agent stopped|The dashboard could not read)/;
+const isProblem = e => PROBLEM.test(e.text) || (e.kind === "result" && /^(error|Failed)/i.test(e.text));
+// The same tidy step as the server's, for lines it saved before: short paths, "Run" for a command, and a long
+// command cut to its first line.
+const escapeRe = t => t.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+function tidy(e) {
+  if (e.kind !== "tool") return e.text;
+  let t = ROOT_DIR ? e.text.replace(new RegExp(escapeRe(ROOT_DIR + "/"), "g"), "") : e.text;
+  t = t.replace(/(?:projects|generated_videos)\/[a-z0-9][a-z0-9-]*\//g, "").replace(/^\$ /, "Run ").replace(/^cd \S+ && /, "");
+  t = t.replace(/^Run cd \S+ && /, "Run ");
+  const lines = t.split("\n");
+  return lines.length > 1 ? `${lines[0].trim()} (+${lines.length - 1} lines)` : t;
+}
+const openSteps = new Set();
+let logMode = "all", logSeen = 0;
+document.querySelectorAll('input[name="log-mode"]').forEach(x => { x.onchange = () => { logMode = x.value; renderLog(lastRun); }; });
+$("log-new").onclick = () => { $("log").scrollTop = $("log").scrollHeight; $("log-new").hidden = true; logSeen = runEvents.length; };
+$("log").onscroll = () => { if (atBottom()) { $("log-new").hidden = true; logSeen = runEvents.length; } };
+const atBottom = () => $("log").scrollTop + $("log").clientHeight >= $("log").scrollHeight - 30;
+let lastRun = null;
+
 function renderLog(r) {
-  const box = $("log"), atEnd = box.scrollTop + box.clientHeight >= box.scrollHeight - 30;
-  const lines = runEvents.filter(e => !lane || e.agent === lane).slice(-500);
-  box.replaceChildren(...(lines.length ? lines.map(e => el("div", { className: `log-${e.kind}` }, [
-    el("span", { className: "who", textContent: agentName(r, e.agent || "main") }), text(e.text)]))
-    : [el("div", { className: "empty", textContent: "Nothing yet." })]));
-  if (atEnd) box.scrollTop = box.scrollHeight;
+  lastRun = r;
+  if (!r) return;
+  const box = $("log"), follow = atBottom();
+  const shown = runEvents.map((e, i) => ({ ...e, i })).filter(e => !lane || e.agent === lane)
+    .filter(e => logMode === "all" || (logMode === "said" ? e.kind !== "tool" : isProblem(e))).slice(-600);
+  const steps = [];
+  for (const e of shown) {
+    const last = steps[steps.length - 1];
+    if (e.kind === "tool" && !isProblem(e) && last && last.head.agent === e.agent && !isProblem(last.head)) last.actions.push(e);
+    else steps.push({ head: e, actions: [] });
+  }
+  const line = (e, cls) => el("div", { className: `${cls} log-${e.kind}${isProblem(e) ? " problem" : ""}` }, [
+    el("span", { className: "time", textContent: e.t ? hms(e.t) : "" }),
+    el("span", { className: "who", textContent: agentName(r, e.agent || "main") }),
+    ...(isProblem(e) ? [el("span", { className: "mark", textContent: "✕ " })] : []),
+    el("span", { textContent: tidy(e), title: e.kind === "tool" && tidy(e) !== e.text ? e.text : "" })]);
+  box.replaceChildren(...(steps.length ? steps.map(s => {
+    if (!s.actions.length) return line(s.head, "step");
+    const fold = el("details", { className: "actions", open: openSteps.has(s.head.i) }, [
+      el("summary", { textContent: `${s.actions.length} action${s.actions.length === 1 ? "" : "s"}${
+        s.actions[s.actions.length - 1].t ? `, last at ${hms(s.actions[s.actions.length - 1].t)}` : ""}: ${tidy(s.actions[s.actions.length - 1])}` }),
+      ...s.actions.map(a => line(a, "action"))]);
+    fold.ontoggle = () => (fold.open ? openSteps.add(s.head.i) : openSteps.delete(s.head.i));
+    return el("div", { className: "stepgroup" }, [line(s.head, "step"), fold]);
+  }) : [el("div", { className: "empty", textContent: logMode === "problems" ? "No problems." : "Nothing yet." })]));
+  if (follow) { box.scrollTop = box.scrollHeight; logSeen = runEvents.length; $("log-new").hidden = true; }
+  else if (runEvents.length > logSeen) {
+    $("log-new").hidden = false;
+    $("log-new").textContent = `${runEvents.length - logSeen} new line${runEvents.length - logSeen === 1 ? "" : "s"}: jump to the end`;
+  }
 }
 
 async function pollRun(force) {
@@ -354,6 +541,10 @@ async function refreshSystem() {
   try {
     s = await fetch("/api/system").then(r => r.json());
     ROOT_DIR = typeof s.root === "string" ? s.root : "";
+    // Model aliases and effort levels, as this Claude Code lists them (an alias always means the latest version).
+    for (const [id, list] of [["model", s.claude_models], ["effort", s.claude_efforts]])
+      if (Array.isArray(list) && $(id).options.length === 1)
+        $(id).append(...list.filter(x => /^[a-z0-9][a-z0-9.\[\]-]*$/.test(x)).map(x => el("option", { value: x, textContent: x })));
   } catch {
     $("system-status").textContent = "Could not reach the dashboard server: is make dashboard still running?";
     $("system-line").textContent = "Dashboard server not reachable";
@@ -397,8 +588,10 @@ async function refresh() {
   } catch {
     return;
   }
-  $("stale").hidden = !s.stale;
-  $("stale-text").textContent = s.videos.some(v => v.running)
+  const restarted = s.boot && s.boot !== BOOT;
+  $("stale").hidden = !s.stale && !restarted;
+  $("stale-text").textContent = restarted ? "The dashboard restarted after this page loaded. Reload the page (Cmd+R)."
+    : s.videos.some(v => v.running)
     ? "The dashboard's code changed after it started. When the running jobs finish, stop it (Ctrl+C in its terminal) and run make dashboard again: a restart stops running jobs."
     : "The dashboard's code changed after it started. Stop it (Ctrl+C in its terminal), run make dashboard again, then reload this page.";
   cards = s.videos;
@@ -409,47 +602,163 @@ async function refresh() {
   await refreshDetail();
 }
 
-// ---------- New video and samples ----------
+// ---------- New video: a dialog with sources, what you want, and look and sound ----------
 
-// The slug follows the topic until you edit it: "How DNS works" -> how-dns-works.
+const KINDS = { topic: "Topic", html: "HTML page", pr: "PR", folder: "Repo or folder", file: "File", recording: "Recording", link: "Web link" };
+const ROLES = { main: "Main story", context: "Context", facts: "Facts and numbers", look: "Look reference" };
+const HINTS = { topic: "how DNS works", html: "~/reports/q3-review.html", pr: "https://github.com/org/repo/pull/482",
+  folder: "~/code/checkout-service", file: "~/notes/design.md", recording: "~/Movies/sync-1118.mp4", link: "https://example.com/article" };
+const MEDIA = /\.(mp3|m4a|wav|aac|ogg|flac|mp4|mov|mkv|webm)$/i;
+// What a value looks like: a PR link or #123, a web link, an .html page, a recording, another file, a folder, else a topic.
+function detectKind(v) {
+  const t = v.trim().replace(/^file:\/\//i, "");  // a browser's file:// link is a path
+  if (/^https:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/\d+/.test(t) || /^([\w.-]+\/[\w.-]+)?#\d+$/.test(t)) return "pr";
+  if (/^https?:\/\//i.test(t)) return "link";
+  if (/^(~|\/|\.{1,2}\/)/.test(t) || /^[^\s/]+\/\S/.test(t)) {
+    if (/\.html?$/i.test(t)) return "html";
+    if (MEDIA.test(t)) return "recording";
+    return /\.[a-z0-9]{1,5}$/i.test(t) ? "file" : "folder";
+  }
+  return "topic";
+}
+const htmlPage = t => (detectKind(t) === "html" ? t.trim() : null);
 const slugify = t => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" ").slice(0, 5).join("-").slice(0, 60);
-// A source that is one path to an .html or .htm file makes a video from that page (make from-html):
-// it starts with ~, /, ./, ../, or a folder name and a slash, so "explain index.html" stays a topic.
-const htmlPage = t => (/^(~|\/|\.{1,2}\/|[^\s\/]+\/)[^\n]*\.html?$/i.test(t.trim()) ? t.trim() : null);
-const pageSlug = p => p.split("/").pop().replace(/\.html?$/i, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-let slugEdited = false, webEdited = false;
-$("slug").oninput = () => { slugEdited = $("slug").value.trim() !== ""; };
+const options = (map, value) => Object.entries(map).map(([k, label]) => el("option", { value: k, textContent: label, selected: k === value }));
+let webEdited = false;
+
+function sourceRow(kind = "topic", role = "main") {
+  const row = el("div", { className: "srcrow", role: "group" });
+  const kindSel = el("select", { className: "select" }, options(KINDS, kind));
+  const value = el("input", { className: "input value", placeholder: HINTS[kind], maxLength: 500 });
+  const roleSel = el("select", { className: "select" }, options(ROLES, role));
+  const remove = el("button", { type: "button", className: "btn", dataset: { variant: "ghost" }, textContent: "Remove" });
+  kindSel.onchange = () => { row.dataset.kindSet = "1"; value.placeholder = HINTS[kindSel.value]; sourcesChanged(); };
+  value.oninput = () => { if (!row.dataset.kindSet) { kindSel.value = detectKind(value.value); value.placeholder = HINTS[kindSel.value]; } sourcesChanged(); };
+  remove.onclick = () => {
+    const rows = [...$("sources").children];
+    if (rows.length === 1) { value.value = ""; delete row.dataset.kindSet; kindSel.value = "topic"; sourcesChanged(); return; }
+    const i = rows.indexOf(row);
+    row.remove();
+    const before = $("sources").children[Math.max(0, i - 1)];  // focus goes to the row above
+    if (before) before.querySelector("input").focus();
+    sourcesChanged(`Removed source ${i + 1}.`);
+  };
+  row.append(kindSel, value, roleSel, remove);
+  return row;
+}
+function sourcesChanged(note = "") {
+  [...$("sources").children].forEach((row, i) => {
+    const [kind, value, role, remove] = row.children;
+    row.setAttribute("aria-label", `Source ${i + 1}`);
+    kind.setAttribute("aria-label", `Source ${i + 1}: kind`);
+    value.setAttribute("aria-label", `Source ${i + 1}: ${KINDS[kind.value]}`);
+    role.setAttribute("aria-label", `Source ${i + 1}: role`);
+    remove.setAttribute("aria-label", `Remove source ${i + 1}`);
+  });
+  const list = sources();
+  if (!webEdited) $("web").checked = !list.some(x => x.kind === "html");  // a page is its own source; a topic needs research
+  $("sources-note").textContent = note || (list.filter(x => x.kind === "html").length > 1 ? "One HTML page per video: keep one." : "");
+}
+const sources = () => [...$("sources").children].map(row => {
+  const [kind, value, role] = row.children;
+  return { kind: kind.value, value: value.value.trim(), role: role.value };
+}).filter(x => x.value);
+$("add-source").onclick = () => {
+  const row = sourceRow("topic", "context");
+  $("sources").append(row);
+  sourcesChanged(`Added source ${$("sources").children.length}.`);
+  row.children[1].focus();
+};
 $("web").onchange = () => { webEdited = true; };
-// Auto: the server asks Claude for a name when you press Start. Manual: you type it (it follows the source until you edit it).
 $("name-mode").onchange = () => {
   const manual = $("name-mode").value === "manual";
   $("slug").hidden = !manual;
   $("slug").required = manual;
-};
-$("source").oninput = () => {
-  const page = htmlPage($("source").value);
-  if (!slugEdited) $("slug").value = page ? pageSlug(page) : slugify($("source").value);
-  if (!webEdited) $("web").checked = !page;  // a page is its own source; a topic needs research
-  $("html-note").hidden = !page;
+  if (manual && !$("slug").value) { const first = sources()[0]; $("slug").value = first ? slugify(first.value.split("/").pop().replace(/\.html?$/i, "")) : ""; }
 };
 
-// Catalogs for the New video form: "Recommend for me" by default, or one entry, with its swatch.
+$("brief").oninput = () => { $("brief-count").textContent = $("brief").value.length; };
+const radio = name => (document.querySelector(`input[name="${name}"]:checked`) || {}).value;
+const card = (name, value, title, text, img, checked) => el("label", {}, [
+  el("input", { type: "radio", name, value, checked }),
+  el("span", { className: "cardbody" }, [...(img ? [el("img", { src: img, alt: "" })] : []), el("strong", { textContent: title }),
+    el("span", { className: "muted", textContent: text })])]);
+
+// Structure and look as cards, "Let Claude pick" first; each structure shows its acts, each look its swatch.
 async function loadCatalogs() {
   const c = await fetch("/api/catalog").then(r => r.json()).catch(() => ({ moodboards: [], video_formats: [] }));
-  const fill = (id, items) => $(id).replaceChildren(el("option", { value: "recommend", textContent: "Recommend for me" }),
-    ...items.filter(x => ID.test(x.name)).map(x => el("option", { value: x.name, textContent: `${x.name}: ${x.description}` })));
-  fill("vformat", c.video_formats);
-  fill("mood", c.moodboards);
+  $("vformat").replaceChildren(card("vformat", "recommend", "Let Claude pick", "from the sources and the intent", null, true),
+    ...c.video_formats.filter(x => ID.test(x.name)).map(x => card("vformat", x.name, x.name, (x.acts || []).join(" > "))));
+  $("mood").replaceChildren(card("mood", "recommend", "Let Claude pick", "a look that fits the topic", null, true),
+    ...c.moodboards.filter(x => ID.test(x.name)).map(x => card("mood", x.name, x.name, (x.fits || []).slice(0, 2).join(", "), `/swatch/${x.name}.jpg`)));
 }
-const pickNote = () => {
-  const mood = $("mood").value, both = $("vformat").value !== "recommend" && mood !== "recommend";
-  $("mood-swatch").hidden = mood === "recommend";
-  if (mood !== "recommend") $("mood-swatch").src = `/swatch/${mood}.jpg`;
-  $("pick-note").textContent = both ? "Your picks: the storyboard uses them as they are."
-    : "Claude recommends the rest, with 2 alternatives, in the storyboard.";
+
+// Voices: a radio per voice and a play button with its sample (voices/<voice>.m4a); nothing plays on its own.
+const VOICES = { af_heart: "US, female", am_michael: "US, male", bf_emma: "UK, female", bm_george: "UK, male" };
+const sample = new Audio();
+$("voice").replaceChildren(...Object.entries(VOICES).map(([v, label], i) => el("div", { className: "voicerow" }, [
+  el("label", {}, [el("input", { type: "radio", name: "voice", value: v, checked: i === 0 }), text(label)]),
+  el("button", { type: "button", className: "btn", dataset: { variant: "ghost" }, textContent: "Play",
+    ariaLabel: `Play voice: ${label}`, onclick: () => { sample.src = `/voice/${v}.m4a`; sample.play().catch(() => {}); } })])));
+
+function resetNew() {
+  $("sources").replaceChildren(sourceRow("topic", "main"));
+  $("brief").value = ""; $("brief-count").textContent = "0"; $("slug").value = ""; $("name-mode").value = "auto"; $("slug").hidden = true;
+  $("web").checked = true; webEdited = false; $("claude-cmd").hidden = true;
+  sourcesChanged();
+}
+$("new-open").onclick = () => { if (!$("sources").children.length) resetNew(); $("new-dialog").showModal(); $("sources").querySelector("select").focus(); };
+const closeNew = () => { $("new-dialog").close(); $("new-open").focus(); };
+$("new-close").onclick = closeNew;
+$("new-cancel").onclick = closeNew;
+
+// The request, from the dialog. A dashboard job gets the sources from the server, which copies pages, files, and
+// recordings into the project first; Claude Code (forTerminal) gets each source as typed, and the skill copies it.
+function request(forTerminal) {
+  const vf = radio("vformat"), mood = radio("mood"), list = sources();
+  const brief = $("brief").value.trim();
+  const listed = forTerminal ? " Sources (kind, role): " + list.map((x, i) => `${i + 1}. ${KINDS[x.kind]}, ${ROLES[x.role]}: ${x.value}`).join("; ") + "." : "";
+  return `Use the explainer-video skill.${listed} Format: ${radio("format")}. ` +
+    (vf !== "recommend" ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
+    `3D: ${$("three").checked ? "allowed (three: true)" : "off (three: false)"}. ` +
+    `Voice: ${radio("voice")}. Length: ${radio("length")}, one video, no parts. ` +
+    (forTerminal && brief ? `The requester's brief (who watches, why, what to cover), in their words: <<<${brief}>>> ` : "") +
+    (forTerminal ? ($("name-mode").value === "manual" && $("slug").value.trim() ? `Name: ${$("slug").value.trim()}. ` : "") +
+      ($("web").checked ? "Web research: on. " : "Web research: off: use only the sources, and write no research.md. ") : "") +
+    "Use defaults for anything else.";
+}
+
+// One word for the shell: single quotes, with each ' inside written as '\''.
+const shq = t => `'${String(t).replace(/'/g, "'\\''")}'`;
+
+$("to-claude").onclick = async () => {
+  const list = sources();
+  if (!list.length) return alert("Add a source first.");
+  const dirs = list.filter(x => x.kind === "folder").map(x => x.value);
+  const picks = ["model", "effort"].filter(id => $(id).value).map(id => `--${id} ${shq($(id).value)} `).join("");
+  const cmd = `cd ${shq(ROOT_DIR || ".")} && claude ${picks}${dirs.map(d => `--add-dir ${shq(d)} `).join("")}` +
+    `${$("web").checked ? "" : "--disallowedTools WebSearch WebFetch "}${shq(request(true))}`;
+  $("claude-cmd-text").textContent = cmd;
+  $("claude-cmd").hidden = false;
+  try { await navigator.clipboard.writeText(cmd); } catch { $("claude-cmd").querySelector("p").textContent = "Copy this and paste it in a terminal:"; }
 };
-$("mood").onchange = pickNote;
-$("vformat").onchange = pickNote;
+
+$("new").onsubmit = async e => {
+  e.preventDefault();
+  const list = sources();
+  if (!list.length) { $("sources-note").textContent = "Add a source first."; return $("sources").querySelector("input").focus(); }
+  const auto = $("name-mode").value === "auto";
+  $("start").disabled = true;
+  $("start").textContent = auto ? "Naming the project" : "Starting";
+  const r = await post("/api/jobs", { prompt: request(false), sources: list, slug: auto ? "" : $("slug").value.trim(),
+    auto_name: auto, web: $("web").checked, brief: $("brief").value.trim(), model: $("model").value, effort: $("effort").value })
+    .finally(() => { $("start").textContent = "Start video"; refreshSystem(); });
+  if (r.error) { $("sources-note").textContent = r.error; return alert(r.error); }  // the dialog stays open
+  closeNew();
+  resetNew();
+  await refresh();
+  open(r.slug, "activity");
+};
 
 // Samples: a finished video to copy. Start runs make new and make narrate; no Claude job is needed.
 async function loadSamples() {
@@ -467,56 +776,6 @@ async function loadSamples() {
             if (x.error) return alert(x.error); await refresh(); open(x.slug || slugBox.value.trim(), "activity"); } })])]);
   }) : [el("div", { className: "empty", textContent: "No samples in videos/samples/ yet." })]));
 }
-
-// The request, from the form. For a dashboard job, an HTML page is copied by the server and named there;
-// for Claude Code, the page's path goes in the request and the skill runs make from-html with it.
-function request(forTerminal) {
-  const vf = $("vformat").value, mood = $("mood").value, page = htmlPage($("source").value);
-  const source = page ? (forTerminal ? `Source: the HTML page ${page}.` : "Make a video from an HTML page.")
-    : `Source: ${$("source").value.trim()}.`;
-  const manual = $("name-mode").value === "manual" && $("slug").value.trim();
-  return `Use the explainer-video skill. ${source} Format: ${$("format").value}. ` +
-    (vf !== "recommend" && !page ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
-    `3D: ${$("three").checked && !page ? "allowed (three: true)" : "off (three: false)"}. ` +
-    `Voice: ${$("voice").value}. Length: ${$("length").value}, one video, no parts. ` +
-    (forTerminal ? (manual ? `Name: ${$("slug").value.trim()}. ` : "") +
-      ($("web").checked ? "Web research: on. " : "Web research: off: use only the source and the extra folders, and write no research.md. ") +
-      ($("plan-check").checked ? "Plan check: stop after step 1. " : "") : "") +
-    "Use defaults for anything else.";
-}
-
-// One word for the shell: single quotes, with each ' inside written as '\''.
-const shq = t => `'${String(t).replace(/'/g, "'\\''")}'`;
-
-$("to-claude").onclick = async () => {
-  if (!$("source").value.trim()) return alert("Type a source first.");
-  const dirs = $("dir").value.split("\n").map(d => d.trim()).filter(Boolean);
-  const cmd = `cd ${shq(ROOT_DIR || ".")} && claude ${dirs.map(d => `--add-dir ${shq(d)} `).join("")}` +
-    `${$("web").checked ? "" : "--disallowedTools WebSearch WebFetch "}${shq(request(true))}`;
-  $("claude-cmd-text").textContent = cmd;
-  $("claude-cmd").hidden = false;
-  try { await navigator.clipboard.writeText(cmd); } catch { $("claude-cmd").querySelector("p").textContent = "Copy this and paste it in a terminal:"; }
-};
-
-$("new").onsubmit = async e => {
-  e.preventDefault();
-  const newSlug = $("slug").value.trim(), page = htmlPage($("source").value);
-  const prompt = request(false);
-  const auto = $("name-mode").value === "auto";
-  $("start").disabled = true;
-  $("start").textContent = auto ? "Naming the project" : "Starting";
-  const r = await post("/api/jobs", { prompt, slug: auto ? "" : newSlug, auto_name: auto, source: $("source").value.trim(),
-    add_dir: $("dir").value.trim(), html: page, plan_check: $("plan-check").checked, web: $("web").checked })
-    .finally(() => { $("start").textContent = "Start"; refreshSystem(); });
-  if (r.error) return alert(r.error);
-  // Ready for the next topic: each video runs on its own and has its own card, under its project id.
-  $("source").value = ""; $("slug").value = ""; $("dir").value = ""; $("plan-check").checked = false; slugEdited = false;
-  $("web").checked = true; webEdited = false;
-  $("html-note").hidden = true;
-  $("claude-cmd").hidden = true;
-  await refresh();
-  open(r.slug || newSlug, "activity");
-};
 
 loadCatalogs();
 loadSamples();

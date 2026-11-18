@@ -12,12 +12,22 @@
  * usually from EV.at; end is optional). `box` is [x, y, w, h] in page px, or one of p.parts (a table, chart, code
  * block, or sub-heading, from build/sections.json), before EV.ready():
  *
- *   EV.page("s03", {...}).then(p => { p.mark(p.parts[0], EV.at("s03-a", "cheapest")); EV.ready(); });
+ *   EV.page("s03", {...}).then(p => { p.mark(p.parts[0], EV.at("s03-a", "slowest")); EV.ready(); });
  *
  * Keep a mark inside the part of the section the camera shows at that time.
+ *
+ * Zoom: p.zoom(box, start, { duration, scale }) moves the camera so `box` fills most of the frame, and
+ * p.reset(start) moves it back. Pass { camera: false } to EV.page to drop the default scroll or slow zoom, so the
+ * scene shows the whole section and then zooms in on the evidence a beat names:
+ *
+ *   EV.page("s03", { ...opts, camera: false }).then(p => {
+ *     p.zoom(p.parts[0], EV.at("page-s03-a", "slowest"));
+ *     p.mark(p.parts[0], EV.at("page-s03-a", "slowest") + 0.8);
+ *     EV.ready();
+ *   });
  */
 (() => {
-  EV.page = async (id, { bg, w: pageWidth, zoom = 1.04, max = 2, parts = [] } = {}) => {
+  EV.page = async (id, { bg, w: pageWidth, zoom = 1.04, max = 2, parts = [], camera = true } = {}) => {
     const format = EV.portrait ? "story" : "landscape";
     const safe = document.querySelector(".safe");
     if (!safe) throw new Error('EV.page needs a <div class="safe"> in the scene');
@@ -38,7 +48,9 @@
     Object.assign(sheet.style, { width: `${w}px`, height: `${h}px`, left: `${(fw - w) / 2}px`,
       top: `${h < fh ? (fh - h) / 2 : 0}px` });
     const duration = EV.data.duration;
-    if (h <= fh) {
+    if (!camera) {
+      // no default camera: p.zoom and p.reset move it
+    } else if (h <= fh) {
       EV.fromTo(sheet, { scale: 1 }, { scale: zoom, duration, ease: "none" }, 0);
     } else {  // scroll down while the voice talks: start after a short look at the top, end a little before the cut
       const start = Math.min(1, duration * 0.1), end = Math.max(start + 0.5, duration - 0.8);
@@ -53,6 +65,16 @@
       if (end != null) EV.to(m, { opacity: 0, duration: 0.3 }, end);
       return m;
     };
-    return { frame, sheet, img, scale, width: w, height: h, parts, mark };
+    const top = h < fh ? (fh - h) / 2 : 0, left = (fw - w) / 2;
+    const zoomTo = (box, start, { duration: d = 0.9, scale: k } = {}) => {
+      const [x, y, bw, bh] = Array.isArray(box) ? box : [box.x, box.y, box.w, box.h];
+      const cx = (x + bw / 2) * scale, cy = (y + bh / 2) * scale;  // the box center, in sheet px
+      const s = k || Math.max(1, Math.min(3, (fw * 0.85) / (bw * scale), (fh * 0.8) / (bh * scale)));
+      // the sheet scales around its center: move the box center to the frame center
+      EV.to(sheet, { x: fw / 2 - left - w / 2 - s * (cx - w / 2), y: fh / 2 - top - h / 2 - s * (cy - h / 2),
+        scale: s, duration: d, ease: "power2.inOut" }, start);
+    };
+    const reset = (start, d = 0.8) => EV.to(sheet, { x: 0, y: 0, scale: 1, duration: d, ease: "power2.inOut" }, start);
+    return { frame, sheet, img, scale, width: w, height: h, parts, mark, zoom: zoomTo, reset };
   };
 })();
