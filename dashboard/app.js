@@ -348,10 +348,12 @@ async function pollRun(force) {
 const ACTIONS = { start: "Start Docker", stop: "Stop Docker", build: "Build image", doctor: "Run doctor" };
 const badge = (t, variant) => el("span", { className: "badge", textContent: t, ...(variant ? { dataset: { variant } } : {}) });
 
+let ROOT_DIR = "";
 async function refreshSystem() {
   let s;
   try {
     s = await fetch("/api/system").then(r => r.json());
+    ROOT_DIR = typeof s.root === "string" ? s.root : "";
   } catch {
     $("system-status").textContent = "Could not reach the dashboard server: is make dashboard still running?";
     $("system-line").textContent = "Dashboard server not reachable";
@@ -466,16 +468,40 @@ async function loadSamples() {
   }) : [el("div", { className: "empty", textContent: "No samples in videos/samples/ yet." })]));
 }
 
-$("new").onsubmit = async e => {
-  e.preventDefault();
-  const vf = $("vformat").value, mood = $("mood").value, newSlug = $("slug").value.trim();
-  const page = htmlPage($("source").value);
-  // An HTML page: the server copies it and names it in the prompt, so the path never reaches Claude as a source.
-  const prompt = `Use the explainer-video skill. ${page ? "Make a video from an HTML page." : `Source: ${$("source").value.trim()}.`} ` +
-    `Format: ${$("format").value}. ` +
+// The request, from the form. For a dashboard job, an HTML page is copied by the server and named there;
+// for Claude Code, the page's path goes in the request and the skill runs make from-html with it.
+function request(forTerminal) {
+  const vf = $("vformat").value, mood = $("mood").value, page = htmlPage($("source").value);
+  const source = page ? (forTerminal ? `Source: the HTML page ${page}.` : "Make a video from an HTML page.")
+    : `Source: ${$("source").value.trim()}.`;
+  const manual = $("name-mode").value === "manual" && $("slug").value.trim();
+  return `Use the explainer-video skill. ${source} Format: ${$("format").value}. ` +
     (vf !== "recommend" && !page ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
     `3D: ${$("three").checked && !page ? "allowed (three: true)" : "off (three: false)"}. ` +
-    `Voice: ${$("voice").value}. Length: ${$("length").value}, one video, no parts. Use defaults for anything else.`;
+    `Voice: ${$("voice").value}. Length: ${$("length").value}, one video, no parts. ` +
+    (forTerminal ? (manual ? `Name: ${$("slug").value.trim()}. ` : "") +
+      ($("web").checked ? "Web research: on. " : "Web research: off: use only the source and the extra folders, and write no research.md. ") +
+      ($("plan-check").checked ? "Plan check: stop after step 1. " : "") : "") +
+    "Use defaults for anything else.";
+}
+
+// One word for the shell: single quotes, with each ' inside written as '\''.
+const shq = t => `'${String(t).replace(/'/g, "'\\''")}'`;
+
+$("to-claude").onclick = async () => {
+  if (!$("source").value.trim()) return alert("Type a source first.");
+  const dirs = $("dir").value.split("\n").map(d => d.trim()).filter(Boolean);
+  const cmd = `cd ${shq(ROOT_DIR || ".")} && claude ${dirs.map(d => `--add-dir ${shq(d)} `).join("")}` +
+    `${$("web").checked ? "" : "--disallowedTools WebSearch WebFetch "}${shq(request(true))}`;
+  $("claude-cmd-text").textContent = cmd;
+  $("claude-cmd").hidden = false;
+  try { await navigator.clipboard.writeText(cmd); } catch { $("claude-cmd").querySelector("p").textContent = "Copy this and paste it in a terminal:"; }
+};
+
+$("new").onsubmit = async e => {
+  e.preventDefault();
+  const newSlug = $("slug").value.trim(), page = htmlPage($("source").value);
+  const prompt = request(false);
   const auto = $("name-mode").value === "auto";
   $("start").disabled = true;
   $("start").textContent = auto ? "Naming the project" : "Starting";
@@ -487,6 +513,7 @@ $("new").onsubmit = async e => {
   $("source").value = ""; $("slug").value = ""; $("dir").value = ""; $("plan-check").checked = false; slugEdited = false;
   $("web").checked = true; webEdited = false;
   $("html-note").hidden = true;
+  $("claude-cmd").hidden = true;
   await refresh();
   open(r.slug || newSlug, "activity");
 };

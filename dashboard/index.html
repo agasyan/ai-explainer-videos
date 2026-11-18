@@ -63,8 +63,15 @@
                 <span>Stop after the plan, so I can check the script before the scenes. By default Claude runs to the 720p video, and you check both there.</span></label>
             </div>
           </details>
-          <button class="btn" id="start">Start</button>
+          <div class="buttons">
+            <button class="btn" id="start">Start</button>
+            <button type="button" class="btn" data-variant="outline" id="to-claude">Open in Claude Code</button>
+          </div>
           <p class="muted" id="start-reason" hidden></p>
+          <div id="claude-cmd" class="stack" hidden>
+            <p class="muted">Copied. Paste it in a terminal: it starts Claude Code in this folder with the same choices, and Claude Code asks you before each step it needs.</p>
+            <pre id="claude-cmd-text"></pre>
+          </div>
         </form>
       </section>
     </section>

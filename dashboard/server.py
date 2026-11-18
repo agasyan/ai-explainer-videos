@@ -184,7 +184,8 @@ def system_state():
     state = {"docker": "missing", "runtime": "colima" if TOOLS["colima"] else "docker-desktop" if DOCKER_APP.exists() else "none",
              "image": "unknown", "doctor": LAST["doctor"], "claude": "missing",
              "three": (LAST["doctor"] or {}).get("three"),  # None until doctor runs; False turns the 3D box off
-             "busy": any(not j["done"] for j in JOBS.values())}
+             "busy": any(not j["done"] for j in JOBS.values()),
+             "root": str(ROOT)}  # for the Open in Claude Code command: cd here first
     if TOOLS["docker"]:
         r = probe(["docker", "info", "--format", "{{.ServerVersion}}"])
         state["docker"] = "not responding" if r is None else "running" if r[0] == 0 else "stopped"
