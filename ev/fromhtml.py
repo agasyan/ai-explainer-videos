@@ -64,6 +64,19 @@ def local_path(folder, url, css):
     return folder.joinpath(parts.hostname, *names)
 
 
+class Redirects(urllib.request.HTTPRedirectHandler):
+    """Follow a redirect only to an allowed URL, checked before the next request is sent, at most 5 hops."""
+    max_redirections = 5
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not allowed(newurl):
+            raise urllib.error.URLError(f"redirect to a host not on the list: {urllib.parse.urlsplit(newurl).hostname}")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
+
+
+OPENER = urllib.request.build_opener(Redirects)
+
+
 class Vendor:
     """Downloads allowed URLs once each; rewrites url() and @import inside CSS to the local copies."""
 
@@ -74,11 +87,7 @@ class Vendor:
         if url in self.done:
             return self.done[url]
         try:
-            with urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=30) as r:
-                if not allowed(r.geturl()):
-                    self.notes.append(f"not copied: {url} moved to a host not on the list")
-                    self.done[url] = None
-                    return None
+            with OPENER.open(urllib.request.Request(url, headers={"User-Agent": AGENT}), timeout=30) as r:
                 kind, data = r.headers.get_content_type(), r.read(MAX_FILE + 1)
         except (urllib.error.URLError, OSError, ValueError) as e:
             self.notes.append(f"not copied: {url} ({getattr(e, 'reason', e)})")

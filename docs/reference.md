@@ -2,7 +2,7 @@
 
 ## Commands
 
-Every command runs in Docker, except `make dashboard`. `SLUG=` takes a project id (`20261118-dns`), a name (`dns`: its newest project), or the slug of a video made before projects (`generated_videos/<slug>/`).
+Every command runs in Docker, except `make dashboard`. `SLUG=` takes a project id (`20261118-dns`), a name (`dns`: its newest project, and the command says which), or the slug of a video made before projects (`generated_videos/<slug>/`). `make approve` and `make video` take only the exact id or older slug, so an approval or a 1080p render names the one video you checked.
 
 | Command | Does |
 |---------|------|

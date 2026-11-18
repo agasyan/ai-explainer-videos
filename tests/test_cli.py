@@ -64,6 +64,14 @@ class NewTest(unittest.TestCase):
             cli.new("20261118-x", "T", sample="demo")
         self.assertIn("already exists", str(stop.exception.code))
 
+    def test_an_approval_needs_the_exact_project_id(self):
+        cli.new("x", "T", sample="demo")
+        cli.new("x", "T", sample="demo")
+        self.assertEqual(self.made, cli.exact_video("20261118-x"))
+        with self.assertRaises(SystemExit) as stop:  # "x" is the newest x: maybe not the one you checked
+            cli.exact_video("x")
+        self.assertIn("SLUG=20261118-x-2", str(stop.exception.code))
+
     def test_an_older_video_keeps_working_where_it_is(self):
         (projects.OLD / "dns").mkdir(parents=True)
         self.assertEqual(projects.OLD / "dns", cli.video("dns"))

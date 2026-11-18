@@ -28,10 +28,24 @@ def legacy_videos():
 
 
 def video(slug):
-    """The folder of an existing video, from its name or its project id (ev/projects.py)."""
+    """The folder of an existing video, from its name or its project id (ev/projects.py). A name finds its newest
+    project, and says which one, so you never work on a project you did not mean."""
     found = projects.find(slug)
     if not found:
         sys.exit(f"No video named {slug} in projects/ or generated_videos/. Start one: make new SLUG={slug} TITLE=...")
+    if found.name != slug:
+        print(f"SLUG={slug} is {found.parent.name}/{found.name}", file=sys.stderr)
+    return found
+
+
+def exact_video(slug):
+    """The folder of exactly this project id (or older slug). An approval and a 1080p render name the one video
+    you checked: a name could point at a newer project with the same name."""
+    found = projects.exact(slug)
+    if not found:
+        newest = projects.find(slug)
+        sys.exit(f"Give the full project id, for example SLUG={newest.name}" if newest
+                 else f"No video named {slug} in projects/ or generated_videos/")
     return found
 
 
@@ -232,10 +246,10 @@ def main():
     for name in ("narrate", "status", "storyboard", "vendor"):
         sub.add_parser(name).add_argument("video", type=video)
     p = sub.add_parser("approve")
-    p.add_argument("video", type=video)
+    p.add_argument("video", type=exact_video)
     p.add_argument("step", choices=gates.STEPS)
     p = sub.add_parser("render")
-    p.add_argument("video", type=video)
+    p.add_argument("video")  # a name for 720p; the exact id for 1080p (see main)
     p.add_argument("--quality", required=True, choices=["720p", "1080p"])
     p.add_argument("--format", choices=["landscape", "story", "both"])
     p.add_argument("--part", type=int)
@@ -281,7 +295,7 @@ def main():
         storyboard_command(a.video)
     elif a.cmd == "render":
         from ev.render import render
-        render(a.video, a.quality, a.format, a.part, a.scene)
+        render(exact_video(a.video) if a.quality == "1080p" else video(a.video), a.quality, a.format, a.part, a.scene)
     elif a.cmd == "reference":
         reference(a.file)
     elif a.cmd == "transcribe":

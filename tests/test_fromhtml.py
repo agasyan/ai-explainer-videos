@@ -111,7 +111,7 @@ class VendorTest(unittest.TestCase):
             page = video / "assets" / "page"
             page.mkdir(parents=True)
             (page / "index.html").write_text(PAGE)
-            with mock.patch.object(fromhtml.urllib.request, "urlopen", side_effect=fake_cdn) as fetch:
+            with mock.patch.object(fromhtml.OPENER, "open", side_effect=fake_cdn) as fetch:
                 fromhtml.vendor(video)
                 html = (page / "index.html").read_text()
                 calls = fetch.call_count
@@ -131,6 +131,19 @@ class VendorTest(unittest.TestCase):
             self.assertIn("vendor/fonts.googleapis.com/css2-", html)
             urls = [c.args[0].full_url for c in fetch.call_args_list]
             self.assertFalse(any("evil" in u or "slack" in u for u in urls))
+
+    def test_a_redirect_is_followed_only_to_a_host_on_the_list(self):
+        import urllib.error
+        import urllib.request
+        handler = fromhtml.Redirects()
+        req = urllib.request.Request("https://cdn.jsdelivr.net/npm/x.js")
+        for bad in ("http://cdn.jsdelivr.net/npm/x.js", "https://169.254.169.254/latest/meta-data",
+                    "https://192.168.1.10/x.js", "https://cdn.jsdelivr.net.evil.example/x.js",
+                    "https://fastly.jsdelivr.net/npm/x.js"):
+            with self.assertRaises(urllib.error.URLError):  # refused before the request is sent
+                handler.redirect_request(req, None, 302, "Found", {}, bad)
+        ok = handler.redirect_request(req, None, 302, "Found", {}, "https://cdn.jsdelivr.net/npm/x@1/x.js")
+        self.assertEqual("https://cdn.jsdelivr.net/npm/x@1/x.js", ok.full_url)
 
     def test_only_https_on_the_list_counts(self):
         self.assertTrue(fromhtml.allowed("https://cdnjs.cloudflare.com/ajax/libs/x.js"))
