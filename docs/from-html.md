@@ -18,7 +18,7 @@ page.html (your disk)
    │  1 intake (host): start projects/<YYYYMMDD>-<name>/, copy the page and the files it links from its own folder
    ▼
 projects/<id>/assets/page/index.html
-   │  2 vendor (container with network): copy scripts, styles, and fonts from the CDN list
+   │  2 vendor (host): copy scripts, styles, and fonts from the CDN list
    ▼
 assets/page/vendor/...
    │  3 sections (container with no network): freeze the page, find sections, capture each at 2x
@@ -30,7 +30,7 @@ make narrate -> make preview -> your check
 ```
 
 1. **Intake** (`ev/intake.py`, on the host). Copies the page as `assets/page/index.html`, plus each file it links with a relative path, when that file is in the page's own folder and is a type a page loads (images, CSS, JS, fonts, video). It never follows a symlink out of the folder. `assets/page/source.json` lists what it copied and skipped.
-2. **Vendor** (`ev vendor`, the only step with network). Copies `<script src>`, stylesheets, and fonts from these HTTPS hosts: `cdnjs.cloudflare.com`, `cdn.jsdelivr.net`, `unpkg.com`, `cdn.tailwindcss.com`, `code.jquery.com`, `fonts.googleapis.com`, `fonts.gstatic.com`. It points the page at the copies. It sends GET requests for those files only: the page's text never leaves your machine. Other hosts are listed as `NOTE` lines, and a link (`<a href>`) is never fetched. A second run fetches nothing.
+2. **Vendor** (`ev/vendor.py`, on the host, with your Mac's network and DNS; standard library only). Copies `<script src>`, stylesheets, and fonts from these HTTPS hosts: `cdnjs.cloudflare.com`, `cdn.jsdelivr.net`, `unpkg.com`, `cdn.tailwindcss.com`, `code.jquery.com`, `fonts.googleapis.com`, `fonts.gstatic.com`. It points the page at the copies. It sends GET requests for those files only: the page's text never leaves your machine. Other hosts are listed as `NOTE` lines, and a link (`<a href>`) is never fetched. A second run fetches nothing.
 3. **Sections** (`ev sections`, no network). Opens the page at the format's width (1920 px for landscape, 1080 px for story), so it uses its own responsive layout. It freezes the page: animations jump to their end, transitions stop, `<details>` open, lazy images load, fixed bars hide, and sticky ones stop sticking. Then it finds the sections, in this order:
    - top-level `<section>` elements, when there are 2 or more;
    - else the blocks between `<h2>` headings, in `<main>`, `<article>`, or the body;

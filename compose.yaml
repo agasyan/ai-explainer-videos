@@ -15,8 +15,7 @@ services:
       EV_TODAY: ${EV_TODAY:-}                      # a new project's date (the Makefile sets it from your clock)
       EV_WORKERS: ${EV_WORKERS:-}                  # pages rendered at the same time (empty = 3, about 0.3 GB each)
       EV_HF_WORKERS: ${EV_HF_WORKERS:-}            # hyperframes engine: Chrome workers (empty = auto)
-  ev-online:                                       # make transcribe (a whisper model, once) and the vendor step of
-                                                   # make from-html (a page's CDN files) only
+  ev-online:                                       # make transcribe only: it may download a whisper model once
     extends:
       service: ev
     network_mode: bridge

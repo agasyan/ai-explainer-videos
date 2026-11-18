@@ -33,7 +33,7 @@ new:        ## Start a project, projects/<YYYYMMDD>-dns: make new SLUG=dns TITLE
 	$(EV) new $(call q,SLUG) --title $(call q,TITLE) $(if $(value SAMPLE),--sample $(call q,SAMPLE))
 from-html:  ## Start a project from an HTML page: make from-html SLUG=x FILE=~/page.html [FORMAT=story]
 	id=$$($(if $(value FILE),python3 -I ev/intake.py $(call q,SLUG) $(call q,FILE),printf '%s' $(V))) && \
-	$(COMPOSE) run --rm -T ev-online vendor "$$id" && \
+	python3 -I ev/vendor.py "$$id" && \
 	$(EV) sections "$$id" $(if $(value FORMAT),--format $(call q,FORMAT))
 narrate:    ## Step 1: make the voice and write storyboard.md: make narrate SLUG=dns
 	$(EV) narrate $(V)

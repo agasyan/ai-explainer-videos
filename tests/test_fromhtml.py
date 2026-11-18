@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest import mock
 
 from ev import fromhtml, intake
+from ev import vendor as cdn
 
 PAGE = """<!doctype html><html><head><title>Partner sort</title>
 <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/lib@1.0.0/lib.min.css" integrity="sha384-x" crossorigin="anonymous">
@@ -111,11 +112,11 @@ class VendorTest(unittest.TestCase):
             page = video / "assets" / "page"
             page.mkdir(parents=True)
             (page / "index.html").write_text(PAGE)
-            with mock.patch.object(fromhtml.OPENER, "open", side_effect=fake_cdn) as fetch:
-                fromhtml.vendor(video)
+            with mock.patch.object(cdn.OPENER, "open", side_effect=fake_cdn) as fetch:
+                cdn.vendor(video)
                 html = (page / "index.html").read_text()
                 calls = fetch.call_count
-                fromhtml.vendor(video)  # nothing left to fetch
+                cdn.vendor(video)  # nothing left to fetch
                 self.assertEqual(calls, fetch.call_count)
             self.assertIn('href="vendor/cdn.jsdelivr.net/npm/lib@1.0.0/lib.min.css"', html)
             self.assertNotIn("integrity", html)  # the CSS changed, so its hash would fail
@@ -135,7 +136,7 @@ class VendorTest(unittest.TestCase):
     def test_a_redirect_is_followed_only_to_a_host_on_the_list(self):
         import urllib.error
         import urllib.request
-        handler = fromhtml.Redirects()
+        handler = cdn.Redirects()
         req = urllib.request.Request("https://cdn.jsdelivr.net/npm/x.js")
         for bad in ("http://cdn.jsdelivr.net/npm/x.js", "https://169.254.169.254/latest/meta-data",
                     "https://192.168.1.10/x.js", "https://cdn.jsdelivr.net.evil.example/x.js",
@@ -146,9 +147,9 @@ class VendorTest(unittest.TestCase):
         self.assertEqual("https://cdn.jsdelivr.net/npm/x@1/x.js", ok.full_url)
 
     def test_only_https_on_the_list_counts(self):
-        self.assertTrue(fromhtml.allowed("https://cdnjs.cloudflare.com/ajax/libs/x.js"))
-        self.assertFalse(fromhtml.allowed("http://cdnjs.cloudflare.com/ajax/libs/x.js"))
-        self.assertFalse(fromhtml.allowed("https://cdnjs.cloudflare.com.evil.example/x.js"))
+        self.assertTrue(cdn.allowed("https://cdnjs.cloudflare.com/ajax/libs/x.js"))
+        self.assertFalse(cdn.allowed("http://cdnjs.cloudflare.com/ajax/libs/x.js"))
+        self.assertFalse(cdn.allowed("https://cdnjs.cloudflare.com.evil.example/x.js"))
 
 
 SECTIONS = """<!doctype html><html><head><title>Demo page</title>

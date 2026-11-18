@@ -286,7 +286,7 @@ def main():
         from ev.render import stills
         stills(a.video, a.format, a.part, a.scene)
     elif a.cmd == "vendor":
-        from ev.fromhtml import vendor
+        from ev.vendor import vendor
         vendor(a.video)
     elif a.cmd == "sections":
         from ev.fromhtml import sections
