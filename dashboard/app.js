@@ -415,11 +415,19 @@ const slugify = t => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(" 
 // it starts with ~, /, ./, ../, or a folder name and a slash, so "explain index.html" stays a topic.
 const htmlPage = t => (/^(~|\/|\.{1,2}\/|[^\s\/]+\/)[^\n]*\.html?$/i.test(t.trim()) ? t.trim() : null);
 const pageSlug = p => p.split("/").pop().replace(/\.html?$/i, "").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 60);
-let slugEdited = false;
+let slugEdited = false, webEdited = false;
 $("slug").oninput = () => { slugEdited = $("slug").value.trim() !== ""; };
+$("web").onchange = () => { webEdited = true; };
+// Auto: the server asks Claude for a name when you press Start. Manual: you type it (it follows the source until you edit it).
+$("name-mode").onchange = () => {
+  const manual = $("name-mode").value === "manual";
+  $("slug").hidden = !manual;
+  $("slug").required = manual;
+};
 $("source").oninput = () => {
   const page = htmlPage($("source").value);
   if (!slugEdited) $("slug").value = page ? pageSlug(page) : slugify($("source").value);
+  if (!webEdited) $("web").checked = !page;  // a page is its own source; a topic needs research
   $("html-note").hidden = !page;
 };
 
@@ -467,12 +475,17 @@ $("new").onsubmit = async e => {
     `Format: ${$("format").value}. ` +
     (vf !== "recommend" && !page ? `Video format: ${vf}. ` : "") + (mood !== "recommend" ? `Moodboard: ${mood}. ` : "") +
     `3D: ${$("three").checked && !page ? "allowed (three: true)" : "off (three: false)"}. ` +
-    `Voice: ${$("voice").value}. One video, no parts. Use defaults for anything else.`;
-  const r = await post("/api/jobs", { prompt, slug: newSlug, add_dir: $("dir").value.trim(), html: page,
-    plan_check: $("plan-check").checked });
+    `Voice: ${$("voice").value}. Length: ${$("length").value}, one video, no parts. Use defaults for anything else.`;
+  const auto = $("name-mode").value === "auto";
+  $("start").disabled = true;
+  $("start").textContent = auto ? "Naming the project" : "Starting";
+  const r = await post("/api/jobs", { prompt, slug: auto ? "" : newSlug, auto_name: auto, source: $("source").value.trim(),
+    add_dir: $("dir").value.trim(), html: page, plan_check: $("plan-check").checked, web: $("web").checked })
+    .finally(() => { $("start").textContent = "Start"; refreshSystem(); });
   if (r.error) return alert(r.error);
   // Ready for the next topic: each video runs on its own and has its own card, under its project id.
   $("source").value = ""; $("slug").value = ""; $("dir").value = ""; $("plan-check").checked = false; slugEdited = false;
+  $("web").checked = true; webEdited = false;
   $("html-note").hidden = true;
   await refresh();
   open(r.slug || newSlug, "activity");

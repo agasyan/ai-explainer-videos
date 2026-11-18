@@ -62,7 +62,7 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 
 ## Long topics: multi-part videos
 
-A video is one part by default: a long source gets less said about each part of it, not a split. Split only when you ask for a length per part (`--length 60s` in Claude Code). Then each part stays under that length and the limits below, and the plan names the parts.
+A video is one part by default: a long source gets less said about each part of it, not a split. Pick its length instead: `< 1 min`, `1-3 min` (the default), or `3-5 min` (`--length under-1m|1-3m|3-5m` in Claude Code). Split only when you ask for a length per part (`--parts 60s`). Then each part stays under that length and the limits below, and the plan names the parts.
 
 | Format | One part, at most |
 |--------|-------------------|

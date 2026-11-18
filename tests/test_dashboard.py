@@ -89,6 +89,37 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Bash(make stills SLUG=dns *)", rules(cmd, "--allowedTools"))
         self.assertIn("Bash(*FILE=*)", rules(cmd, "--disallowedTools"))  # only the New video form copies a page
 
+    def test_web_research_off_denies_the_web_tools(self):
+        on = server.command("x", slug="dns")
+        off = server.command("x", slug="dns", web=False)
+        self.assertIn("WebSearch", rules(on, "--allowedTools"))
+        self.assertFalse({"WebSearch", "WebFetch"} & set(rules(off, "--allowedTools")))
+        self.assertTrue({"WebSearch", "WebFetch"} <= set(rules(off, "--disallowedTools")))
+
+    def test_each_extra_folder_is_read_only(self):
+        allowed = rules(server.command("x", read_dir=["/src/a", "/src/b"]), "--allowedTools")
+        self.assertTrue({"Read(//src/a/**)", "Read(//src/b/**)"} <= set(allowed))
+        self.assertFalse(any(r.startswith("Edit(//src") for r in allowed))
+
+    def test_a_suggested_name_must_be_a_plain_name(self):
+        import subprocess
+        from unittest import mock
+        answers = {"partner-sort-pins\n": "partner-sort-pins", "  `cache-basics`.\n": "cache-basics",
+                   "Sure! Here is a name: ../etc\n": None, "20261118-dns\n": None, "": None}
+        saved = server.TOOLS["claude"]
+        server.TOOLS["claude"] = "/usr/bin/claude"
+        try:
+            for out, want in answers.items():
+                done = subprocess.CompletedProcess([], 0, stdout=out, stderr="")
+                with mock.patch.object(server.subprocess, "run", return_value=done) as run:
+                    self.assertEqual(want, server.suggest_name("how a cache works"))
+                argv = run.call_args.args[0]
+                self.assertEqual(["--allowedTools", ""], argv[argv.index("--allowedTools"):argv.index("--allowedTools") + 2])
+        finally:
+            server.TOOLS["claude"] = saved
+        self.assertEqual("how-a-cache-works", server.plain_name("How a cache works?"))
+        self.assertEqual("video", server.plain_name("!!!"))
+
     def test_start_waits_for_a_claude_login_with_a_plan(self):
         future, past = "2999-01-01T00:00:00.000Z", "2000-01-01T00:00:00.000Z"
         self.assertEqual(("logged in", "team"), server.login_state(
@@ -338,6 +369,20 @@ class PageTest(unittest.TestCase):
     def test_post_without_the_token_is_refused(self):
         self.assertEqual(403, self.get("/api/jobs", "POST", body="{}")[0])
 
+    def test_auto_name_asks_claude_and_falls_back_to_the_source(self):
+        started = self.stub_jobs()
+        saved = server.suggest_name
+        try:
+            server.suggest_name = lambda source, page=None: "cache-basics"
+            self.assertEqual(f"{TODAY}-cache-basics", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
+                                                                             "source": "how a cache works"})["slug"])
+            server.suggest_name = lambda source, page=None: None
+            self.assertEqual(f"{TODAY}-how-a-cache-works", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
+                                                                                  "source": "How a cache works"})["slug"])
+        finally:
+            server.suggest_name = saved
+        self.assertTrue(all(j["web"] for j in started))  # on unless you untick it
+
     def test_new_job_needs_a_valid_name_and_gets_a_fresh_project(self):
         (server.PROJECTS / f"{TODAY}-dns").mkdir()
         try:
@@ -411,8 +456,9 @@ class PageTest(unittest.TestCase):
     def stub_jobs(self):
         """Capture what a route would start, instead of running make or claude."""
         started, saved = [], server.start_job
-        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None: (
-            started.append({"prompt": prompt, "argv": argv, "slug": slug, "session": session}) or {"id": "job1"})
+        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
+            started.append({"prompt": prompt, "argv": argv, "slug": slug, "session": session, "web": web,
+                            "read_dir": read_dir}) or {"id": "job1"})
         self.addCleanup(setattr, server, "start_job", saved)
         return started
 
@@ -563,7 +609,7 @@ class PageTest(unittest.TestCase):
                 self.assertIn("must be an .html", self.post("/api/jobs", {"prompt": "p", "slug": "a",
                                                                           "html": str(src / "chart.png")})["error"])
                 self.assertFalse(server.PROJECTS.exists() and any(server.PROJECTS.iterdir()))
-                r = self.post("/api/jobs", {"prompt": "p", "slug": "rep", "add_dir": tmp,
+                r = self.post("/api/jobs", {"prompt": "p", "slug": "rep", "add_dir": tmp, "web": False,
                                             "html": "ask/report/report.html", "plan_check": True})
                 self.assertEqual(("job1", f"{TODAY}-rep"), (r["id"], r["slug"]))
                 page = server.PROJECTS / f"{TODAY}-rep" / "assets" / "page"
@@ -574,6 +620,8 @@ class PageTest(unittest.TestCase):
         prompt = started[0]["prompt"]
         self.assertIn(f"make from-html SLUG={TODAY}-rep", prompt)
         self.assertIn("Plan check: stop after step 1.", prompt)
+        self.assertIn("Web research: off", prompt)
+        self.assertEqual((False, []), (started[0]["web"], started[0]["read_dir"]))  # the copy: no folder to read
         self.assertNotIn(tmp, prompt)  # the job works on the copy, never on your path
         self.assertTrue(prompt.endswith(server.DASHBOARD_JOB))
 
@@ -607,7 +655,7 @@ class PageTest(unittest.TestCase):
             self.assertIn("lowercase letters", self.post("/api/samples/autopilot-training/use", {"slug": "X"})["error"])
             started = []
             saved = server.start_job
-            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None: (
+            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
                 started.append((argv, then, slug)) or {"id": "j"})
             try:
                 self.assertEqual({"id": "j", "slug": f"{TODAY}-y"}, self.post("/api/samples/autopilot-training/use", {"slug": "y"}))
