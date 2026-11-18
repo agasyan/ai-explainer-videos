@@ -13,8 +13,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 SAMPLES = ROOT / "videos" / "samples"
-LOCAL = ROOT / "generated_videos"
-ID = re.compile(r"[a-z0-9][a-z0-9-]*")
+LOCAL = ROOT / "generated_videos"                        # videos made before projects
+PROJECTS = ROOT / "projects"
 SOURCES = ("script.yaml", "research.md", "style.css", "scenes/*.html", "assets/**/*")
 PUBLISHED = SOURCES + ("storyboard.md", "frames/**/*.jpg")  # a sample also shows its storyboard and frames
 
@@ -71,12 +71,11 @@ def field(text, key):
 
 def publish(slug):
     sys.path.append(str(ROOT))  # last, after the standard library
-    from ev import gates
-    if not ID.fullmatch(slug):
-        raise SystemExit("SLUG must be lowercase letters, digits, and dashes")
-    src, dst = LOCAL / slug, SAMPLES / slug
-    if not (src / "script.yaml").is_file():
-        raise SystemExit(f"No video at generated_videos/{slug}/")
+    from ev import gates, projects
+    src = projects.exact(slug, PROJECTS, LOCAL)  # projects/<id>, or generated_videos/<slug> for an older video
+    if not src or not (src / "script.yaml").is_file():
+        raise SystemExit(f"No video named {slug} in projects/ or generated_videos/: give its full name")
+    dst = SAMPLES / slug.split("-", 1)[1] if projects.DATED.fullmatch(slug) else SAMPLES / slug
     if not gates.approved(src, "preview"):
         raise SystemExit(f"Approve the preview of {slug} first: a sample is a video someone checked")
     if dst.exists():

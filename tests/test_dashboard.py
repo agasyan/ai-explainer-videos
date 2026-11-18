@@ -11,6 +11,20 @@ from pathlib import Path
 spec = importlib.util.spec_from_file_location("server", Path(__file__).resolve().parent.parent / "dashboard" / "server.py")
 server = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(server)
+TODAY = server.projects.today()
+
+
+def setUpModule():
+    """New projects go to a temporary projects/: tests never read or write the real one."""
+    import tempfile
+    global PROJECTS_TMP
+    PROJECTS_TMP = tempfile.TemporaryDirectory()
+    server.PROJECTS = Path(PROJECTS_TMP.name) / "projects"
+    server.PROJECTS.mkdir()
+
+
+def tearDownModule():
+    PROJECTS_TMP.cleanup()
 
 
 def rules(cmd, flag):
@@ -23,7 +37,7 @@ class CommandTest(unittest.TestCase):
     def test_jobs_edit_only_named_sources_of_their_own_video(self):
         edits = [r for r in rules(server.command("x", slug="dns"), "--allowedTools") if r.startswith("Edit")]
         self.assertTrue(edits)
-        self.assertTrue(all(r.startswith("Edit(/generated_videos/dns/") for r in edits), edits)
+        self.assertTrue(all(r.startswith("Edit(/projects/dns/") for r in edits), edits)  # a new job: a project
         self.assertFalse(any("approved" in r.lower() for r in edits))
 
     def test_jobs_run_make_only_for_their_own_slug(self):
@@ -40,20 +54,26 @@ class CommandTest(unittest.TestCase):
 
     def test_a_job_cannot_touch_other_videos(self):
         import tempfile
-        saved = server.VIDEOS
+        saved = server.VIDEOS, server.PROJECTS
         with tempfile.TemporaryDirectory() as tmp:
-            server.VIDEOS = Path(tmp)
-            for name in ("a", "b"):
-                (Path(tmp) / name).mkdir()
+            server.VIDEOS, server.PROJECTS = Path(tmp) / "generated_videos", Path(tmp) / "projects"
+            for name in ("generated_videos/a", "generated_videos/b", "projects/20261118-c"):
+                (Path(tmp) / name).mkdir(parents=True)
             try:
                 own = rules(server.command("x", slug="a"), "--disallowedTools")
                 new = rules(server.command("x"), "--disallowedTools")
+                mine = rules(server.command("x", slug="20261118-c"), "--allowedTools")
+                fresh = rules(server.command("x", slug="20261119-d"), "--allowedTools")
             finally:
-                server.VIDEOS = saved
+                server.VIDEOS, server.PROJECTS = saved
         self.assertIn("Read(/generated_videos/b/**)", own)
         self.assertIn("Read(/[gG][eE][nN][eE][rR][aA][tT][eE][dD]_[vV][iI][dD][eE][oO][sS]/[bB]/**)", own)
+        self.assertIn("Edit(/projects/20261118-c/**)", own)
         self.assertNotIn("Read(/generated_videos/a/**)", own)
         self.assertTrue({"Read(/generated_videos/a/**)", "Edit(/generated_videos/b/**)"} <= set(new))
+        self.assertIn("Edit(/projects/20261118-c/sources/**)", mine)  # a project's own notes
+        self.assertIn("Edit(/projects/20261119-d/script.yaml)", fresh)  # a new project, before make new makes it
+        self.assertFalse(any("generated_videos" in r for r in mine + fresh if r.startswith("Edit(")))
 
     def test_a_marker_for_another_video_is_ignored(self):
         job = {"session": None, "slug": "a", "waiting": None}
@@ -63,10 +83,57 @@ class CommandTest(unittest.TestCase):
         server.events(job, json.dumps({"type": "result", "result": "WAITING FOR APPROVAL: a plan"}))
         self.assertEqual({"slug": "a", "step": "plan"}, job["waiting"])
 
-    def test_jobs_cannot_give_auto_consent(self):
+    def test_jobs_run_from_html_but_never_copy_a_file_from_your_disk(self):
         cmd = server.command("x", slug="dns")
-        self.assertIn("Bash(make auto:*)", rules(cmd, "--disallowedTools"))
-        self.assertFalse(any("auto" in r for r in rules(cmd, "--allowedTools")))
+        self.assertIn("Bash(make from-html SLUG=dns)", rules(cmd, "--allowedTools"))
+        self.assertIn("Bash(make stills SLUG=dns *)", rules(cmd, "--allowedTools"))
+        self.assertIn("Bash(*FILE=*)", rules(cmd, "--disallowedTools"))  # only the New video form copies a page
+
+    def test_web_research_off_denies_the_web_tools(self):
+        on = server.command("x", slug="dns")
+        off = server.command("x", slug="dns", web=False)
+        self.assertIn("WebSearch", rules(on, "--allowedTools"))
+        self.assertFalse({"WebSearch", "WebFetch"} & set(rules(off, "--allowedTools")))
+        self.assertTrue({"WebSearch", "WebFetch"} <= set(rules(off, "--disallowedTools")))
+
+    def test_each_extra_folder_is_read_only(self):
+        allowed = rules(server.command("x", read_dir=["/src/a", "/src/b"]), "--allowedTools")
+        self.assertTrue({"Read(//src/a/**)", "Read(//src/b/**)"} <= set(allowed))
+        self.assertFalse(any(r.startswith("Edit(//src") for r in allowed))
+
+    def test_a_suggested_name_must_be_a_plain_name(self):
+        import subprocess
+        from unittest import mock
+        answers = {"partner-sort-pins\n": "partner-sort-pins", "  `cache-basics`.\n": "cache-basics",
+                   "Sure! Here is a name: ../etc\n": None, "20261118-dns\n": None, "": None}
+        saved = server.TOOLS["claude"]
+        server.TOOLS["claude"] = "/usr/bin/claude"
+        try:
+            for out, want in answers.items():
+                done = subprocess.CompletedProcess([], 0, stdout=out, stderr="")
+                with mock.patch.object(server.subprocess, "run", return_value=done) as run:
+                    self.assertEqual(want, server.suggest_name("how a cache works"))
+                argv, kw = run.call_args.args[0], run.call_args.kwargs
+                for flag in ("--tools", "--setting-sources"):  # no tools, and none of this repo's allow rules
+                    self.assertEqual("", argv[argv.index(flag) + 1])
+                self.assertIn("--strict-mcp-config", argv)
+                self.assertNotEqual(str(server.ROOT), kw["cwd"])
+        finally:
+            server.TOOLS["claude"] = saved
+        self.assertEqual("how-a-cache-works", server.plain_name("How a cache works?"))
+        self.assertEqual("video", server.plain_name("!!!"))
+
+    def test_start_waits_for_a_claude_login_with_a_plan(self):
+        future, past = "2999-01-01T00:00:00.000Z", "2000-01-01T00:00:00.000Z"
+        self.assertEqual(("logged in", "team"), server.login_state(
+            {"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "team", "loginExpiresAt": future,
+             "email": "someone@example.com"}))
+        self.assertEqual(("expired", ""), server.login_state(
+            {"loggedIn": True, "authMethod": "claude.ai", "subscriptionType": "max", "loginExpiresAt": past}))
+        self.assertEqual(("no plan", ""), server.login_state({"loggedIn": True, "authMethod": "claude.ai"}))
+        self.assertEqual(("logged in", ""), server.login_state({"loggedIn": True, "authMethod": "api_key"}))
+        self.assertEqual(("logged out", ""), server.login_state({"loggedIn": False}))
+        self.assertEqual(("logged out", ""), server.login_state(None))
 
     def test_read_dir_is_read_only(self):
         allowed = rules(server.command("x", read_dir="/src/repo"), "--allowedTools")
@@ -165,8 +232,9 @@ class ProgressTest(unittest.TestCase):
             job["done"] = True
             (v / "build" / "progress.json").write_text(json.dumps({"step": "done", "detail": "", "at": server.time.time()}))
             (v / "build" / "narration.json").write_text(json.dumps({"source": server.gates.fingerprint(v, "plan")}))
-            self.assertEqual(("you", "Your turn: check the plan (storyboard and voice)"),
-                             (server.summary("x")["turn"], server.summary("x")["now"]))
+            card = server.summary("x")  # the plan is ready: Claude goes on, and the preview check covers it
+            self.assertEqual("next", card["turn"])
+            self.assertTrue(card["now"].startswith("Next: Claude writes the scenes"))
         self.with_videos(check)
 
     def test_a_new_job_has_a_card_before_its_folder_exists(self):
@@ -304,19 +372,56 @@ class PageTest(unittest.TestCase):
     def test_post_without_the_token_is_refused(self):
         self.assertEqual(403, self.get("/api/jobs", "POST", body="{}")[0])
 
-    def test_new_job_needs_a_fresh_valid_slug(self):
+    def test_the_web_choice_survives_a_restart_and_fails_closed(self):
         import tempfile
-        saved = server.VIDEOS
+        saved, jobs = server.VIDEOS, dict(server.JOBS)
+        server.JOBS.clear()
+        sid = "0b8f6a2e-1c3d-4e5f-8a9b-0c1d2e3f4a5b"
         with tempfile.TemporaryDirectory() as tmp:
-            server.VIDEOS = Path(tmp)
-            (Path(tmp) / "dns").mkdir()
+            server.VIDEOS = Path(tmp) / "generated_videos"
+            for name, saved_file in (("off", {"session": sid, "web": False}), ("old", {"session": sid}), ("none", None)):
+                (server.VIDEOS / name / "build").mkdir(parents=True)
+                if saved_file:
+                    (server.VIDEOS / name / "build" / "dashboard.json").write_text(json.dumps(saved_file))
             try:
-                ask = lambda slug: json.loads(self.get("/api/jobs", "POST", {"X-EV-Token": server.TOKEN},
-                                                       json.dumps({"prompt": "p", "slug": slug}))[2])["error"]
-                self.assertIn("lowercase letters", ask("../x"))
-                self.assertIn("already exists", ask("dns"))
+                server.JOBS["r"] = {"slug": "off", "system": False, "started": 1, "web": None}  # a run loaded from disk
+                self.assertFalse(server.web_research("off"))   # the saved choice, not a run with no record
+                self.assertTrue(server.web_research("old"))    # made before the choice existed: it had the web
+                self.assertFalse(server.web_research("none"))  # nothing recorded: off
+                server.JOBS["s"] = {"slug": "none", "system": False, "started": 2, "web": True}
+                self.assertTrue(server.web_research("none"))
             finally:
                 server.VIDEOS = saved
+                server.JOBS.clear()
+                server.JOBS.update(jobs)
+
+    def test_auto_name_asks_claude_and_falls_back_to_the_source(self):
+        started = self.stub_jobs()
+        saved = server.suggest_name
+        try:
+            server.suggest_name = lambda source, page=None: "cache-basics"
+            self.assertEqual(f"{TODAY}-cache-basics", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
+                                                                             "source": "how a cache works"})["slug"])
+            server.suggest_name = lambda source, page=None: None
+            self.assertEqual(f"{TODAY}-how-a-cache-works", self.post("/api/jobs", {"prompt": "p", "auto_name": True,
+                                                                                  "source": "How a cache works"})["slug"])
+        finally:
+            server.suggest_name = saved
+        self.assertTrue(all(j["web"] for j in started))  # on unless you untick it
+
+    def test_new_job_needs_a_valid_name_and_gets_a_fresh_project(self):
+        (server.PROJECTS / f"{TODAY}-dns").mkdir()
+        try:
+            ask = lambda slug: json.loads(self.get("/api/jobs", "POST", {"X-EV-Token": server.TOKEN},
+                                                   json.dumps({"prompt": "p", "slug": slug}))[2])
+            self.assertIn("lowercase letters", ask("../x")["error"])
+            self.assertIn("already exists", ask(f"{TODAY}-dns")["error"])  # a full id must be free
+            started = self.stub_jobs()
+            r = ask("dns")  # the same name the same day: a second project
+            self.assertEqual((f"{TODAY}-dns-2", f"{TODAY}-dns-2"), (r["slug"], started[0]["slug"]))
+            self.assertIn(f"Start with make new SLUG={TODAY}-dns-2", started[0]["prompt"])
+        finally:
+            (server.PROJECTS / f"{TODAY}-dns").rmdir()
 
     def test_system_action_refused_while_a_job_runs(self):
         server.JOBS["busy"] = {"id": "busy", "prompt": "p", "session": None, "events": [], "done": False, "waiting": None}
@@ -377,8 +482,9 @@ class PageTest(unittest.TestCase):
     def stub_jobs(self):
         """Capture what a route would start, instead of running make or claude."""
         started, saved = [], server.start_job
-        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None: (
-            started.append({"prompt": prompt, "argv": argv, "slug": slug, "session": session}) or {"id": "job1"})
+        server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
+            started.append({"prompt": prompt, "argv": argv, "slug": slug, "session": session, "web": web,
+                            "read_dir": read_dir}) or {"id": "job1"})
         self.addCleanup(setattr, server, "start_job", saved)
         return started
 
@@ -391,11 +497,14 @@ class PageTest(unittest.TestCase):
             "plan": {"hash": gates.fingerprint(video, "plan"), "by": "t", "at": "now"},
             "preview": {"hash": gates.fingerprint(video, "preview"), "by": "t", "at": "now", "formats": list(formats)}}))
 
-    def test_render_buttons_need_their_approvals(self):
+    def test_preview_needs_only_scenes_and_1080p_needs_the_approved_preview(self):
         def check(video):
+            started = self.stub_jobs()
+            self.assertEqual("No scenes yet: step 2 writes them", self.post("/api/videos/x/preview", {})["error"])
             (video / "scenes").mkdir()
             (video / "scenes" / "hook.html").write_text("<p>x</p>")
-            self.assertEqual("Approve the plan first", self.post("/api/videos/x/preview", {})["error"])
+            self.assertEqual("job1", self.post("/api/videos/x/preview", {})["id"])
+            self.assertEqual(["make", "preview", "SLUG=x"], started[0]["argv"])
             self.assertEqual("Approve the preview first", self.post("/api/videos/x/final", {})["error"])
         self.with_video(check)
 
@@ -455,6 +564,21 @@ class PageTest(unittest.TestCase):
             info = json.loads(self.get("/api/videos/x")[2])
             self.assertEqual(["/files/x/out/x-part1-landscape-720p.mp4"], info["previews"])
             self.assertEqual(["/files/x/out/x-landscape-1080p.mp4"], info["finals"])
+            self.assertEqual(["/files/x/out/x-landscape-1080p.mp4?download=1"], info["downloads"])  # 720p: not approved
+        self.with_video(check)
+
+    def test_the_approved_720p_is_the_final_and_comes_with_a_verdict(self):
+        def check(video):
+            self.approved_video(video)
+            (video / "out").mkdir()
+            (video / "out" / "x-landscape-720p.mp4").write_bytes(b"\0")
+            (video / "build").mkdir()
+            (video / "build" / "verdict.json").write_text(json.dumps({"1080p": "not needed", "why": "Big text."}))
+            info = json.loads(self.get("/api/videos/x")[2])
+            self.assertEqual(["/files/x/out/x-landscape-720p.mp4?download=1"], info["downloads"])
+            self.assertEqual({"1080p": "not needed", "why": "Big text."}, info["verdict"])
+            card = server.summary("x")
+            self.assertEqual(("done", "Done: the 720p video is ready (1080p optional)"), (card["turn"], card["now"]))
         self.with_video(check)
 
     def test_final_is_done_only_when_every_part_is_rendered(self):
@@ -495,21 +619,37 @@ class PageTest(unittest.TestCase):
             self.assertEqual("About 6 min", info["estimate"]["720p"])  # 60 s x 30 frames x 0.2 s
         self.with_video(check)
 
-    def test_auto_start_writes_your_consent_before_the_job(self):
+    def test_an_html_page_is_copied_before_the_job_and_named_in_the_prompt(self):
         import tempfile
-        saved = server.VIDEOS
+        saved = server.VIDEOS, server.PROJECTS
         with tempfile.TemporaryDirectory() as tmp:
-            server.VIDEOS = Path(tmp)
+            server.VIDEOS, server.PROJECTS = Path(tmp) / "videos", Path(tmp) / "projects"
+            server.VIDEOS.mkdir()
+            src = Path(tmp) / "ask" / "report"
+            src.mkdir(parents=True)
+            (src / "report.html").write_text('<img src="chart.png"><a href="../../secret.txt">x</a>')
+            (src / "chart.png").write_bytes(b"png")
+            (Path(tmp) / "secret.txt").write_text("no")
             started = self.stub_jobs()
             try:
-                self.assertEqual("job1", self.post("/api/jobs", {"prompt": "p", "slug": "dns", "auto": True})["id"])
-                self.post("/api/jobs", {"prompt": "p", "slug": "web"})
-                consent = json.loads((Path(tmp) / "dns" / "approved.json").read_text())
+                self.assertIn("must be an .html", self.post("/api/jobs", {"prompt": "p", "slug": "a",
+                                                                          "html": str(src / "chart.png")})["error"])
+                self.assertFalse(server.PROJECTS.exists() and any(server.PROJECTS.iterdir()))
+                r = self.post("/api/jobs", {"prompt": "p", "slug": "rep", "add_dir": tmp, "web": False,
+                                            "html": "ask/report/report.html", "plan_check": True})
+                self.assertEqual(("job1", f"{TODAY}-rep"), (r["id"], r["slug"]))
+                page = server.PROJECTS / f"{TODAY}-rep" / "assets" / "page"
+                copied = sorted(p.name for p in page.rglob("*") if p.is_file())
             finally:
-                server.VIDEOS = saved
-        self.assertEqual("preview", consent["auto"]["until"])
-        self.assertIn("Auto until preview.", started[0]["prompt"])
-        self.assertNotIn("Auto until preview.", started[1]["prompt"])
+                server.VIDEOS, server.PROJECTS = saved
+        self.assertEqual(["chart.png", "index.html", "source.json"], copied)
+        prompt = started[0]["prompt"]
+        self.assertIn(f"make from-html SLUG={TODAY}-rep", prompt)
+        self.assertIn("Plan check: stop after step 1.", prompt)
+        self.assertIn("Web research: off", prompt)
+        self.assertEqual((False, []), (started[0]["web"], started[0]["read_dir"]))  # the copy: no folder to read
+        self.assertNotIn(tmp, prompt)  # the job works on the copy, never on your path
+        self.assertTrue(prompt.endswith(server.DASHBOARD_JOB))
 
     def with_samples(self, fn):
         import tempfile
@@ -538,18 +678,17 @@ class PageTest(unittest.TestCase):
             self.assertEqual(200, self.get(listed[0]["frame"])[0])
             self.assertEqual(404, self.get("/samples/autopilot-training/script.yaml")[0])
             self.assertEqual(404, self.get("/api/samples/nope/use", "POST", {"X-EV-Token": server.TOKEN}, "{}")[0])
-            (server.VIDEOS / "x").mkdir()
-            self.assertEqual("generated_videos/x already exists. Use another slug.",
-                             self.post("/api/samples/autopilot-training/use", {"slug": "x"})["error"])
+            self.assertIn("lowercase letters", self.post("/api/samples/autopilot-training/use", {"slug": "X"})["error"])
             started = []
             saved = server.start_job
-            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None: (
+            server.start_job = lambda prompt, session=None, read_dir="", argv=None, slug=None, then=None, web=True: (
                 started.append((argv, then, slug)) or {"id": "j"})
             try:
-                self.assertEqual("j", self.post("/api/samples/autopilot-training/use", {"slug": "y"})["id"])
+                self.assertEqual({"id": "j", "slug": f"{TODAY}-y"}, self.post("/api/samples/autopilot-training/use", {"slug": "y"}))
             finally:
                 server.start_job = saved
-            self.assertEqual([(["make", "new", "SLUG=y", "SAMPLE=autopilot-training"], ["make", "narrate", "SLUG=y"], "y")], started)
+            y = f"{TODAY}-y"
+            self.assertEqual([(["make", "new", f"SLUG={y}", "SAMPLE=autopilot-training"], ["make", "narrate", f"SLUG={y}"], y)], started)
         self.with_samples(check)
 
     def test_page_has_zero_gradients(self):

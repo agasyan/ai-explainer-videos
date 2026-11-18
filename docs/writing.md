@@ -23,7 +23,7 @@ For a topic, the agent writes `research.md` before the script: one table, one ro
 2. A claim is checked when two independent sources agree; with one, its status is `one source`.
 3. Each beat that states a fact lists its claims: `sources: [c1]`.
 4. `make narrate` prints `CHECK` for a beat that cites an unknown claim, or states a number with no source.
-5. Approving the plan approves `research.md`: the plan check covers it.
+5. Approving the preview (or an early plan check) approves `research.md`: the plan hash covers it.
 
 ## Narration: about 80% of the way to ASD-STE100
 
@@ -62,7 +62,7 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 
 ## Long topics: multi-part videos
 
-Split when a part runs over the limit, or when the topic has more than one main idea. The plan names the parts, so you approve the split before any picture exists.
+A video is one part by default: a long source gets less said about each part of it, not a split. Pick its length instead: `< 1 min`, `1-3 min` (the default), or `3-5 min` (`--length under-1m|1-3m|3-5m` in Claude Code). Split only when you ask for a length per part (`--parts 60s`). Then each part stays under that length and the limits below, and the plan names the parts.
 
 | Format | One part, at most |
 |--------|-------------------|
@@ -96,4 +96,4 @@ parts:
             show: A Part 2 of 2 badge, then a clock icon crossed out.
 ```
 
-Output: `out/<slug>-part1-story-1080p.mp4`, `out/<slug>-part2-story-1080p.mp4`, and so on. Scene ids must be unique across all parts. One approval covers all parts.
+Output: `out/<slug>-part1-story-720p.mp4`, `out/<slug>-part2-story-720p.mp4`, and so on (and `-1080p` when you render it). Scene ids must be unique across all parts. One approval covers all parts.

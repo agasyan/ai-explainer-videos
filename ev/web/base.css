@@ -63,3 +63,10 @@ svg * { transform-box: fill-box; transform-origin: center; }  /* SVG shapes scal
 .ev-captions .w.on { opacity: 1; }
 .ev-captions .w.key.on { color: var(--cap-key); }
 .ev-captions .w.now { color: var(--cap-now); }
+
+/* make from-html: a captured page section with a camera over it (ev/web/page.js) */
+.ev-page { position: absolute; inset: 0; overflow: hidden; border-radius: 14px; }
+.ev-page-sheet { position: absolute; transform-origin: 50% 50%; box-shadow: 0 10px 40px rgba(0, 0, 0, 0.14); }
+.ev-page-shot { display: block; width: 100%; height: 100%; }
+.ev-page-mark { position: absolute; border: 6px solid var(--accent); border-radius: 16px;
+                box-shadow: 0 0 0 4px rgba(255, 255, 255, 0.7), 0 8px 30px rgba(0, 0, 0, 0.2); }

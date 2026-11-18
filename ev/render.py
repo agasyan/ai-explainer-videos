@@ -1,17 +1,24 @@
 """Render: headless Chromium captures each scene page frame by frame, ffmpeg encodes it,
-and the voice clips are mixed in, giving one MP4 per part and format.
+and the voice clips are mixed in, giving one MP4 per part and format. The 720p preview you approve is the final
+video; 1080p is an optional render after it (verdict() says when it is worth it).
 
 The voice sets the clock. A beat starts when the voice of the beat before ends, plus `gap` and `hold`.
 Pages get these times in window.EV_DATA, so picture and voice cannot drift apart.
 
 Two engines capture the frames (script.yaml `engine:`):
-- playwright (default): calls EV.seek(t) and takes a screenshot, once per frame, in one page.
-- hyperframes: `hyperframes render` (HeyGen, Apache-2.0) drives EV.seek(t) as a frame source, in parallel
-  Chrome workers, and also seeks <video class="clip"> elements. Playwright then only lints the beat frames.
+- playwright (default): calls EV.seek(t) and takes a full-size JPEG over the DevTools protocol, once per frame;
+  ffmpeg scales it down for 720p.
+- hyperframes: `hyperframes render` (HeyGen, Apache-2.0) drives EV.seek(t) as a frame source and also seeks
+  <video class="clip"> elements. Playwright then only lints the beat frames.
+Scenes render in parallel, EV_WORKERS at a time (default 3), each in its own Chromium; a long scene is split into
+chunks of frames, so it does not keep one worker busy while the others wait. Only a 3D scene's Chromium gets
+software WebGL. `stills()` captures only the frame before each next beat: a fast check while scenes are drawn.
 """
+import base64
 import hashlib
 import json
 import os
+import queue
 import re
 import shutil
 import subprocess
@@ -31,6 +38,11 @@ from ev.voice import narrate
 WEB = ROOT / "ev" / "web"
 CAPTION_CHARS = {"pop": {"landscape": 28, "story": 16}, "line": {"landscape": 42, "story": 26}}  # per caption line
 ENGINES = ("playwright", "hyperframes")
+JPEG = {"720p": 90, "1080p": 95}                            # screenshot quality; the MP4 is yuv420p x264 CRF 18
+PRESET = {"720p": "veryfast", "1080p": "fast"}              # x264: the final 1080p gets a little more care
+WORKERS = max(1, int(os.environ.get("EV_WORKERS") or 3))   # pages rendered at the same time
+CAPTURE = 2                                                 # in the cache key: change it when frames come out differently
+CHUNK_MIN = 240                                             # frames: a shorter chunk costs more page loads than it saves
 
 
 # ---------- timing ----------
@@ -214,25 +226,39 @@ def lint_marks(page, url, data):
     return lint + [f"{data['scene']}: {w}" for w in page.evaluate("EV.warnings")]
 
 
-def capture(page, url, data, mp4, stills, lossless):
-    """Playwright engine: render one scene page to a silent MP4. Saves and lints the frame just before each next beat."""
+def shooter(page, quality="720p"):
+    """A function that returns one full-size JPEG of the page (1920 x 1080 for landscape: the context's device scale
+    is 1). It calls the DevTools protocol directly, with no clip and optimizeForSpeed: about 21 ms a frame, where
+    page.screenshot() took about 33 ms at 720p, and PNG at 1080p took far longer. A 720p MP4 is scaled down from it
+    by ffmpeg, which also keeps thin lines and small text sharper than a page drawn at a 2/3 device scale."""
+    cdp = page.context.new_cdp_session(page)
+    params = {"format": "jpeg", "quality": JPEG[quality], "optimizeForSpeed": True}
+    return lambda: base64.b64decode(cdp.send("Page.captureScreenshot", params)["data"])
+
+
+def capture(page, url, data, mp4, stills, quality, frames=None):
+    """Playwright engine: render one scene page (or the `frames` range of it) to a silent MP4. Saves and lints the
+    frame just before each next beat."""
     errors = open_scene(page, url, data)
-    ext = "png" if lossless else "jpg"
+    shot = shooter(page, quality)
     marks = beat_frames(data)
+    width, height = (round(n * SCALE[quality]) for n in SIZE[data["format"]])
     encoder = subprocess.Popen(
-        ["ffmpeg", "-loglevel", "error", "-y", "-f", "image2pipe", "-framerate", str(FPS),
-         "-c:v", "png" if lossless else "mjpeg", "-i", "-", "-c:v", "libx264",
-         "-preset", "medium" if lossless else "veryfast", "-crf", "18", "-pix_fmt", "yuv420p", str(mp4)],
+        ["ffmpeg", "-loglevel", "error", "-y", "-f", "image2pipe", "-framerate", str(FPS), "-c:v", "mjpeg", "-i", "-",
+         *(["-vf", f"scale={width}:{height}:flags=lanczos"] if SCALE[quality] != 1 else []),
+         "-c:v", "libx264", "-preset", PRESET[quality], "-crf", "18", "-pix_fmt", "yuv420p", str(mp4)],
         stdin=subprocess.PIPE)
     lint = []
-    for i in range(data["frames"]):
-        page.evaluate("t => EV.seek(t)", i / FPS)
-        shot = page.screenshot(type="png") if lossless else page.screenshot(type="jpeg", quality=90)
-        encoder.stdin.write(shot)
-        if i in marks:
-            (stills / f"{marks[i]['id']}.{ext}").write_bytes(shot)
-            lint += [f"{data['scene']}/{marks[i]['id']}: {issue}" for issue in page.evaluate("EV.lint()")]
-    encoder.stdin.close()
+    try:
+        for i in frames or range(data["frames"]):
+            page.evaluate("t => EV.seek(t)", i / FPS)
+            image = shot()
+            encoder.stdin.write(image)
+            if i in marks:
+                (stills / f"{marks[i]['id']}.jpg").write_bytes(image)
+                lint += [f"{data['scene']}/{marks[i]['id']}: {issue}" for issue in page.evaluate("EV.lint()")]
+    finally:
+        encoder.stdin.close()
     if encoder.wait():
         raise SystemExit(f"{data['scene']}: ffmpeg failed")
     if errors:
@@ -328,10 +354,8 @@ def hf_capture(video, proj, data, mp4, stills, quality):
                      "stream=nb_read_packets", "-of", "csv=p=0", mp4, capture_output=True, text=True).stdout)
     if frames != data["frames"]:
         raise SystemExit(f"{data['scene']}: hyperframes wrote {frames} frames, and the voice needs {data['frames']}")
-    ext = "png" if quality == "1080p" else "jpg"
     for i, b in beat_frames(data).items():
-        ffmpeg("-ss", f"{(i + 0.5) / FPS:.4f}", "-i", mp4, "-frames:v", 1, *(["-q:v", 2] if ext == "jpg" else []),
-               stills / f"{b['id']}.{ext}")
+        ffmpeg("-ss", f"{(i + 0.5) / FPS:.4f}", "-i", mp4, "-frames:v", 1, "-q:v", 2, stills / f"{b['id']}.jpg")
 
 
 SELFTEST_PAGE = """<!doctype html>
@@ -413,7 +437,8 @@ def hf_selftest(folder):
 # ---------- per scene ----------
 
 def record_timing(video, engine, quality, per_frame):
-    """Seconds per frame of the last 20 renders, per engine and quality, for the dashboard's estimate."""
+    """Seconds per frame of the last 20 renders (wall time over all frames, so parallel scenes count once),
+    per engine and quality, for the dashboard's estimate."""
     path = video / "build" / "timings.json"
     try:
         data = json.loads(path.read_text())
@@ -424,42 +449,136 @@ def record_timing(video, engine, quality, per_frame):
     path.write_text(json.dumps(data))
 
 
-def render_scene(browser, port, video, quality, data, engine, proj, where=""):
-    """Render a scene unless the same inputs were rendered before. Returns (mp4, stills folder, lint).
-    Prints "scene i/n" for each scene, cached or not, so the dashboard can show progress."""
+def cache_base(video, data, engine, quality):
+    """build/scenes/<format>-<quality>/<scene>-<hash>: the hash covers everything that changes the scene's picture."""
     key = hashlib.sha256(json.dumps(data, sort_keys=True).encode())
     key.update(f"{engine} {os.environ.get('HYPERFRAMES_VERSION', '') if engine == 'hyperframes' else ''}".encode())
-    key.update(f"three {os.environ.get('THREE_VERSION', '')}".encode())
+    key.update(f"three {os.environ.get('THREE_VERSION', '')} capture {CAPTURE}".encode())
     for path in [video / "scenes" / f"{data['scene']}.html", video / "style.css", video / "build" / "theme.css",
                  *sorted(WEB.glob("*")), *sorted((video / "assets").glob("**/*"))]:
         if path.is_file():
             key.update(path.read_bytes())
-    base = video / "build" / "scenes" / f"{data['format']}-{quality}" / f"{data['scene']}-{key.hexdigest()[:12]}"
-    mp4, lint_file = base.with_suffix(".mp4"), base.with_suffix(".lint.json")
-    if lint_file.exists():
-        print(f"  scene {where} {data['scene']}: cached", flush=True)
-    else:
-        started = time.monotonic()
-        base.mkdir(parents=True, exist_ok=True)
-        width, height = SIZE[data["format"]]
-        context = browser.new_context(viewport={"width": width, "height": height}, device_scale_factor=SCALE[quality],
-                                      service_workers="block")  # a service worker's requests skip routes
+    return video / "build" / "scenes" / f"{data['format']}-{quality}" / f"{data['scene']}-{key.hexdigest()[:12]}"
+
+
+class Browsers:
+    """One Playwright and up to two Chromiums for one thread: plain, and with software WebGL for 3D scenes.
+    Playwright's sync API is not thread-safe, so each thread starts its own."""
+
+    def __init__(self):
+        from playwright.sync_api import sync_playwright
+        self.playwright, self.open = sync_playwright().start(), {}
+
+    def get(self, webgl):
+        if webgl not in self.open:
+            self.open[webgl] = self.playwright.chromium.launch(args=["--font-render-hinting=none", *(WEBGL if webgl else [])])
+        return self.open[webgl]
+
+    def context(self, port, fmt, webgl):
+        """A new context at the format's full size (device scale 1: see shooter()) with the network guard.
+        Returns (context, blocked URLs)."""
+        width, height = SIZE[fmt]
+        context = self.get(webgl).new_context(viewport={"width": width, "height": height}, device_scale_factor=1,
+                                              service_workers="block")  # a service worker's requests skip routes
         blocked = []
         guard(context, port, blocked)
-        print(f"  scene {where} {data['scene']}: {data['duration']:.1f}s ({engine})", flush=True)
-        i, _, n = where.partition("/")
-        progress(video, f"Rendering {quality} {data['format']}", f"scene {i} of {n} ({data['scene']})")
-        url = f"http://127.0.0.1:{port}/scenes/{data['scene']}.html"
+        return context, blocked
+
+    def close(self):
+        for browser in self.open.values():
+            browser.close()
+        self.playwright.stop()
+
+
+def tasks_for(jobs, engine):
+    """The scenes to render as tasks of about equal length, longest first, so WORKERS pages finish together.
+    A long scene (Playwright engine) becomes chunks of frames; HyperFrames renders a scene in one piece."""
+    total = sum(j["data"]["frames"] for j in jobs)
+    target = max(CHUNK_MIN, -(-total // WORKERS))
+    tasks = []
+    for job in jobs:
+        frames = job["data"]["frames"]
+        n = -(-frames // target) if engine == "playwright" and frames > target * 1.25 else 1
+        job["chunks"] = n
+        for k in range(n):
+            a, b = frames * k // n, frames * (k + 1) // n
+            tasks.append({"job": job, "frames": range(a, b), "n": n,
+                          "out": job["base"].with_suffix(".mp4") if n == 1 else job["base"] / f"chunk-{k}.mp4"})
+    return sorted(tasks, key=lambda t: -len(t["frames"]))
+
+
+def render_scene(browsers, port, video, task, engine, proj):
+    """Render one task: a whole scene, or a chunk of its frames, to its MP4 and its beat stills. Returns its lint."""
+    job = task["job"]
+    data, base = job["data"], job["base"]
+    base.mkdir(parents=True, exist_ok=True)
+    context, blocked = browsers.context(port, data["format"], job["webgl"])
+    part = f", frames {task['frames'].start}-{task['frames'].stop - 1}" if task["n"] > 1 else ""
+    print(f"  scene {job['where']} {data['scene']}: {data['duration']:.1f}s ({engine}{part})", flush=True)
+    url = f"http://127.0.0.1:{port}/scenes/{data['scene']}.html"
+    try:
         if engine == "hyperframes":
             lint = lint_marks(context.new_page(), url, data)
-            hf_capture(video, proj, data, mp4, base, quality)
+            hf_capture(video, proj, data, task["out"], base, job["quality"])
         else:
-            lint = capture(context.new_page(), url, data, mp4, base, quality == "1080p")
+            lint = capture(context.new_page(), url, data, task["out"], base, job["quality"], task["frames"])
+    finally:
         context.close()
-        lint += [f"{data['scene']}: blocked a request to {u[:120]}: put the file in assets/" for u in dict.fromkeys(blocked)]
-        lint_file.write_text(json.dumps(lint))
-        record_timing(video, engine, quality, (time.monotonic() - started) / data["frames"])
-    return mp4, base, json.loads(lint_file.read_text())
+    return lint + [f"{data['scene']}: blocked a request to {u[:120]}: put the file in assets/" for u in dict.fromkeys(blocked)]
+
+
+def finish_scene(job, lints):
+    """Join a chunked scene's MP4s, then write <base>.lint.json, which marks the scene done."""
+    base = job["base"]
+    if job["chunks"] > 1:
+        listing = base / "chunks.txt"
+        listing.write_text("".join(f"file '{(base / f'chunk-{k}.mp4').resolve()}'\n" for k in range(job["chunks"])))
+        ffmpeg("-f", "concat", "-safe", 0, "-i", listing, "-c", "copy", base.with_suffix(".mp4"))
+        for k in range(job["chunks"]):
+            (base / f"chunk-{k}.mp4").unlink()
+        listing.unlink()
+    base.with_suffix(".lint.json").write_text(json.dumps(list(dict.fromkeys(lints))))  # a chunk repeats EV.warnings
+
+
+def render_all(jobs, port, video, engine, proj, label):
+    """Render the scenes in `jobs`, WORKERS pages at a time, each worker with its own Chromium. The first error stops
+    the workers from taking more tasks, and is raised here."""
+    tasks = tasks_for(jobs, engine)
+    todo, failed, lints, lock = queue.SimpleQueue(), [], {}, threading.Lock()
+    for task in tasks:
+        todo.put(task)
+
+    def worker():
+        browsers = None
+        try:
+            while not failed:
+                try:
+                    task = todo.get_nowait()
+                except queue.Empty:
+                    return
+                browsers = browsers or Browsers()
+                lint = render_scene(browsers, port, video, task, engine, proj)
+                job = task["job"]
+                with lock:
+                    got = lints.setdefault(id(job), [])
+                    got.append((task["frames"].start, lint))
+                    whole = len(got) == job["chunks"]
+                if whole:  # its last chunk: join the scene
+                    finish_scene(job, [x for _, chunk in sorted(got, key=lambda g: g[0]) for x in chunk])
+                    progress(video, label, f"{sum(len(v) == j['chunks'] for j in jobs for v in [lints.get(id(j), [])])} "
+                                           f"of {len(jobs)} scenes done")
+        except BaseException as e:  # SystemExit too: it carries the message for the person
+            failed.append(e)
+        finally:
+            if browsers:
+                browsers.close()
+    threads = [threading.Thread(target=worker, daemon=True) for _ in range(min(WORKERS, len(tasks)))]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    if failed:
+        raise failed[0]
 
 
 # ---------- assemble ----------
@@ -524,12 +643,96 @@ def contact_sheets(video, stem, shots, fmt):
 # ---------- main ----------
 
 def render(video, quality, fmt=None, part=None, scene=None):
+    """Render every scene (cached by content), join them per part and format, and mix in the voice.
+    720p needs no approval; 1080p needs the approved preview."""
     spec = load(video)
     targets = formats(spec, fmt)
-    for f in targets:
-        gates.require(video, quality, f)
+    if quality == "1080p":
+        for f in targets:
+            gates.require(video, quality, f)
     fp = gates.fingerprint(video, "preview")
     spec, voice = narrate(video)
+    engine = prepare(video, spec)
+    threes = set(three_scenes(video, spec))
+    proj = hf_project(video, scene or "all") if engine == "hyperframes" else None
+    server = serve(video, spec)
+    try:
+        parts = []  # (format, part number, [job]) in render order
+        for f in targets:
+            for n, p in enumerate(spec["parts"], 1):
+                chosen = [s for s in p["scenes"] if not scene or s["id"] == scene]
+                if (part and n != part) or not chosen:
+                    continue
+                jobs = []
+                for s in chosen:
+                    data = scene_data(spec, s, voice["scenes"][s["id"]], voice["gap"], f)
+                    jobs.append({"data": data, "base": cache_base(video, data, engine, quality), "quality": quality,
+                                 "voice": voice["scenes"][s["id"]], "webgl": s["id"] in threes})
+                parts.append((f, n, jobs))
+        every = [j for _, _, jobs in parts for j in jobs]
+        for i, job in enumerate(every, 1):
+            job["where"] = f"{i}/{len(every)}"
+        missing = [j for j in every if not j["base"].with_suffix(".lint.json").exists()]
+        for job in every:
+            if job not in missing:
+                print(f"  scene {job['where']} {job['data']['scene']}: cached", flush=True)
+        if missing:
+            label = f"Rendering {quality} {', '.join(targets)}"
+            progress(video, label, f"0 of {len(missing)} scenes done")
+            print(f"render {len(missing)} scene{'s' if len(missing) > 1 else ''}, {WORKERS} pages at a time", flush=True)
+            started = time.monotonic()
+            render_all(missing, server.server_address[1], video, engine, proj, label)
+            record_timing(video, engine, quality, (time.monotonic() - started) / sum(j["data"]["frames"] for j in missing))
+        many = len(spec["parts"]) > 1
+        for f in targets:
+            shots, outs = [], []
+            for ff, n, jobs in parts:
+                if ff == f:
+                    out, part_shots = assemble_part(video, f, n, jobs, scene, many, quality)
+                    shots, outs = shots + part_shots, outs + [out]
+            if quality == "1080p" and gates.fingerprint(video, "preview") != fp:  # edited while it rendered
+                for out in outs:
+                    out.unlink(missing_ok=True)
+                raise SystemExit("A file changed during the 1080p render, so it no longer matches the approved "
+                                 "preview. The 1080p files were removed: check the change and approve the preview again.")
+            if not part and not scene:
+                gates.record_render(video, f, quality, fp)
+                if quality == "720p":
+                    save_frames(video, f, shots)
+    finally:
+        server.shutdown()
+        progress(video, "done", "")
+    if quality == "720p" and not part and not scene:
+        storyboard.refresh(video, spec, voice)  # now with a frame per beat
+        v = verdict(video, spec)
+        (video / "build" / "verdict.json").write_text(json.dumps(v))
+        print(f"VERDICT 1080p: {v['1080p']}. {v['why']}")
+
+
+PICTURES = {".png", ".jpg", ".jpeg", ".webp", ".avif", ".gif", ".mp4", ".webm", ".mov"}
+
+
+def verdict(video, spec):
+    """Is the optional 1080p render worth it? Drawn text is 28 CSS px or more (EV.lint), which 720p shows sharply.
+    A picture of a screen (a page capture from make from-html, a screenshot, a video clip) carries the source's own
+    small text, which 1080p keeps readable on a big screen. {"1080p": "not needed" | "worth it for big screens",
+    "why": one sentence}"""
+    pages = [s["id"] for p in spec["parts"] for s in p["scenes"] if s.get("treatment") == "page"]
+    pictures = [f for f in (video / "assets").glob("**/*") if f.suffix.lower() in PICTURES and "page" not in f.parts]
+    if pages or pictures:  # a scene can load a picture from a script, so the assets/ folder is the signal
+        what = " and ".join(x for x in (
+            f"{len(pages)} page capture{'s' if len(pages) != 1 else ''}" if pages else "",
+            f"{len(pictures)} screenshot{'s' if len(pictures) != 1 else ''} or clip{'s' if len(pictures) != 1 else ''}"
+            f" from assets/" if pictures else "") if x)
+        return {"1080p": "worth it for big screens",
+                "why": f"The video shows {what}, with the source's own small text: 720p is fine on a laptop or phone, "
+                       f"and 1080p keeps that text readable on a projector, a TV, or a public upload."}
+    return {"1080p": "not needed",
+            "why": "Every scene is drawn, with text of 28 px or more, which 720p shows sharply on any screen."}
+
+
+def prepare(video, spec):
+    """Write build/theme.css, check the engine and 3D rules. Returns the engine."""
     name = moodboard_name(spec)
     (video / "build" / "theme.css").write_text(catalog.theme_css(name) if name else
                                                "/* no moodboard: this video's look: comes from base.css */\n")
@@ -537,32 +740,45 @@ def render(video, quality, fmt=None, part=None, scene=None):
     if engine not in ENGINES:
         raise SystemExit(f"engine: use {' or '.join(ENGINES)}, not {engine!r}")
     three_checks(video, spec, engine)
-    webgl = WEBGL if three_scenes(video, spec) else []
-    proj = hf_project(video, scene or "all") if engine == "hyperframes" else None
-    from playwright.sync_api import sync_playwright
+    return engine
+
+
+def serve(video, spec):
+    """A local web server for the scene pages: the only place a page may load from."""
     server = ThreadingHTTPServer(("127.0.0.1", 0), partial(Files, video=video.resolve(), three=three_on(spec)))
     threading.Thread(target=server.serve_forever, daemon=True).start()
-    try:
-        with sync_playwright() as p:
-            browser = p.chromium.launch(args=["--font-render-hinting=none", *webgl])
-            for f in targets:
-                shots, outs = render_format(browser, server.server_address[1], video, spec, voice, f, quality, part,
-                                            scene, engine, proj)
-                if quality == "1080p" and gates.fingerprint(video, "preview") != fp:  # edited while it rendered
-                    for out in outs:
-                        out.unlink(missing_ok=True)
-                    raise SystemExit("A file changed during the 1080p render, so it no longer matches the approved "
-                                     "preview. The 1080p files were removed: check the change and approve the preview again.")
-                if not part and not scene:
-                    gates.record_render(video, f, quality, fp)
-                    if quality == "720p":
-                        save_frames(video, f, shots)
-            browser.close()
-    finally:
-        server.shutdown()
-        progress(video, "done", "")
-    if quality == "720p" and not part and not scene:
-        storyboard.refresh(video, spec, voice)  # now with a frame per beat
+    return server
+
+
+def assemble_part(video, fmt, n, jobs, scene, many, quality):
+    """Join one part's scene clips with its voice, print its review frames and lint. Returns the MP4 and its
+    review stills, as (image, "scene/beat", show)."""
+    print(f"render {fmt} {quality} part {n}", flush=True)
+    clips, voices, cues, shots, lint, offset = [], [], [], [], [], 0.0
+    for job in jobs:
+        data, base = job["data"], job["base"]
+        clips.append(base.with_suffix(".mp4"))
+        lint += json.loads(base.with_suffix(".lint.json").read_text())
+        for b, clip in zip(data["beats"], job["voice"]):
+            voices.append((offset + b["start"], clip["wav"]))
+            shots.append((base / f"{b['id']}.jpg", f"{data['scene']}/{b['id']}", b["show"]))
+        lines = cue_lines([w for b in data["beats"] for w in b["words"]], CAPTION_CHARS["line"][fmt])  # SRT and VTT
+        cues += [(offset + c["start"], offset + c["end"], " ".join(w["w"] for w in c["words"])) for c in lines]
+        offset += data["duration"]
+    stem = f"{video.name}{f'-part{n}' if many else ''}{f'-{scene}' if scene else ''}-{fmt}-{quality}"
+    out = assemble(video, stem, clips, voices, cues, offset)
+    print(f"DONE {out} ({seconds(out):.0f}s)")
+    report(video, stem, shots, lint, fmt)
+    return out, shots
+
+
+def report(video, stem, shots, lint, fmt):
+    """Print each review frame with its storyboard line, the contact sheets, and the LINT lines."""
+    for i, (_, label, show) in enumerate(shots, 1):
+        print(f"  frame {i:02d} {label}  show: {show}")
+    for sheet in contact_sheets(video, stem, shots, fmt):
+        print(f"  contact sheet: {sheet}")
+    print("\n".join(f"LINT {x}" for x in lint) if lint else "  lint: clean")
 
 
 def save_frames(video, fmt, shots):
@@ -580,40 +796,47 @@ def save_frames(video, fmt, shots):
         picture.save(out, quality=80)
 
 
-def render_format(browser, port, video, spec, voice, fmt, quality, part, scene, engine, proj):
-    """Render each part in one format. Returns every beat's review still, as (image, "scene/beat", show)."""
-    many = len(spec["parts"]) > 1
-    ext = "png" if quality == "1080p" else "jpg"
-    every, outs = [], []
-    todo = [(n, s) for n, p in enumerate(spec["parts"], 1) if not part or n == part
-            for s in p["scenes"] if not scene or s["id"] == scene]
-    for n, p in enumerate(spec["parts"], 1):
-        chosen = [s for s in p["scenes"] if not scene or s["id"] == scene]
-        if (part and n != part) or not chosen:
-            continue
-        print(f"render {fmt} {quality} part {n}", flush=True)
-        clips, voices, cues, shots, lint, offset = [], [], [], [], [], 0.0
-        for s in chosen:
-            clips_voice = voice["scenes"][s["id"]]
-            data = scene_data(spec, s, clips_voice, voice["gap"], fmt)
-            mp4, stills, issues = render_scene(browser, port, video, quality, data, engine, proj,
-                                               f"{todo.index((n, s)) + 1}/{len(todo)}")
-            clips.append(mp4)
-            lint += issues
-            for b, clip in zip(data["beats"], clips_voice):
-                voices.append((offset + b["start"], clip["wav"]))
-                shots.append((stills / f"{b['id']}.{ext}", f"{s['id']}/{b['id']}", b["show"]))
-            lines = cue_lines([w for b in data["beats"] for w in b["words"]], CAPTION_CHARS["line"][fmt])  # SRT and VTT
-            cues += [(offset + c["start"], offset + c["end"], " ".join(w["w"] for w in c["words"])) for c in lines]
-            offset += data["duration"]
-        stem = f"{video.name}{f'-part{n}' if many else ''}{f'-{scene}' if scene else ''}-{fmt}-{quality}"
-        out = assemble(video, stem, clips, voices, cues, offset)
-        outs.append(out)
-        print(f"DONE {out} ({seconds(out):.0f}s)")
-        for i, (_, label, show) in enumerate(shots, 1):
-            print(f"  frame {i:02d} {label}  show: {show}")
-        for sheet in contact_sheets(video, stem, shots, fmt):
-            print(f"  contact sheet: {sheet}")
-        print("\n".join(f"LINT {x}" for x in lint) if lint else "  lint: clean")
-        every += shots
-    return every, outs
+def stills(video, fmt=None, part=None, scene=None):
+    """The fast check while scenes are drawn: only the frame before each next beat, linted, with a contact sheet.
+    No MP4 and no cache. Uses Playwright with both engines, so a <video class="clip"> shows its first frame here."""
+    spec = load(video)
+    spec, voice = narrate(video)
+    engine = prepare(video, spec)
+    threes = set(three_scenes(video, spec))
+    server = serve(video, spec)
+    browsers = Browsers()
+    try:
+        for f in formats(spec, fmt):
+            shots, lint = [], []
+            for n, p in enumerate(spec["parts"], 1):
+                for s in p["scenes"]:
+                    if (part and n != part) or (scene and s["id"] != scene):
+                        continue
+                    data = scene_data(spec, s, voice["scenes"][s["id"]], voice["gap"], f)
+                    folder = video / "build" / "stills" / f / s["id"]
+                    shutil.rmtree(folder, ignore_errors=True)
+                    folder.mkdir(parents=True)
+                    context, blocked = browsers.context(server.server_address[1], f, s["id"] in threes)
+                    try:
+                        page = context.new_page()
+                        errors = open_scene(page, f"http://127.0.0.1:{server.server_address[1]}/scenes/{s['id']}.html", data)
+                        shot = shooter(page)
+                        for i, b in sorted(beat_frames(data).items()):
+                            page.evaluate("t => EV.seek(t)", i / FPS)
+                            (folder / f"{b['id']}.jpg").write_bytes(shot())
+                            lint += [f"{s['id']}/{b['id']}: {issue}" for issue in page.evaluate("EV.lint()")]
+                            shots.append((folder / f"{b['id']}.jpg", f"{s['id']}/{b['id']}", b["show"]))
+                        if errors:
+                            raise SystemExit(f"{s['id']}:\n  " + "\n  ".join(errors))
+                        lint += [f"{s['id']}: {w}" for w in page.evaluate("EV.warnings")]
+                    finally:
+                        context.close()
+                    lint += [f"{s['id']}: blocked a request to {u[:120]}: put the file in assets/" for u in dict.fromkeys(blocked)]
+            if not shots:
+                raise SystemExit(f"No scene {scene!r} in script.yaml" if scene else "No scenes in script.yaml")
+            stem = f"{video.name}{f'-part{part}' if part else ''}{f'-{scene}' if scene else ''}-{f}-stills"
+            print(f"DONE stills {f}: {len(shots)} frames ({engine} renders the MP4 in make preview)")
+            report(video, stem, shots, lint, f)
+    finally:
+        browsers.close()
+        server.shutdown()
