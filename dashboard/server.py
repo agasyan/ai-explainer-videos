@@ -27,7 +27,7 @@ from urllib.parse import parse_qs, unquote, urlparse
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.append(str(ROOT))  # last, so a stray datetime.py in the repo cannot shadow the standard library
-from ev import gates, intake, projects  # noqa: E402 (standard library only, so they run on the host)
+from ev import gates, intake, projects, safe  # noqa: E402 (standard library only, so they run on the host)
 
 PROJECTS = ROOT / "projects"          # new videos: projects/<YYYYMMDD>-<name>/
 VIDEOS = ROOT / "generated_videos"    # videos made before projects
@@ -67,7 +67,7 @@ def stale():
     return any(not p.exists() or p.stat().st_mtime != t for p, t in CODE.items())
 # What a job may write in its video folder, by exact name. Anything else (approved.json, build/, a Makefile, in any
 # letter case) matches no rule and is refused: a disk that ignores case cannot widen an allowlist.
-SOURCES = ["intent.md", "script.yaml", "research.md", "sources/**", "style.css", "scenes/*.html", "assets/**"]
+SOURCES = ["intent.md", "issues.md", "script.yaml", "research.md", "sources/**", "style.css", "scenes/*.html", "assets/**"]
 
 
 # The make targets a job may run, always for its own slug only (the page fixes the slug when the job starts).
@@ -152,12 +152,11 @@ def prepare_sources(slug, items):
             start = f"make from-html SLUG={slug}"
             origins.append({"kind": "html", "path": str(src), "stamp": stamp(src)})
         elif x["kind"] in ("file", "recording"):
-            folder = home / "sources" / ("files" if x["kind"] == "file" else "recordings")
-            folder.mkdir(parents=True, exist_ok=True)
-            intake.copy_file(x["path"], folder / x["path"].name)
+            sub = "files" if x["kind"] == "file" else "recordings"
+            intake.copy_file(x["path"], home, f"sources/{sub}/{x['path'].name}")
             origins.append({"kind": x["kind"], "path": str(x["path"]), "stamp": stamp(x["path"]),
-                            "dest": f"sources/{folder.name}/{x['path'].name}"})
-            lines.append(f"{label}: {x['path'].name}, copied to projects/{slug}/sources/{folder.name}/"
+                            "dest": f"sources/{sub}/{x['path'].name}"})
+            lines.append(f"{label}: {x['path'].name}, copied to projects/{slug}/sources/{sub}/"
                          + (f" (run make transcribe SLUG={slug})" if x["kind"] == "recording" else ""))
         elif x["kind"] == "folder":
             dirs.append(str(x["path"]))
@@ -165,9 +164,28 @@ def prepare_sources(slug, items):
         else:
             lines.append(f"{label}: {x['value']}")
     if origins:  # where each copy came from, so a later step can copy a changed original again (refresh_sources)
-        (home / "build").mkdir(parents=True, exist_ok=True)
-        (home / "build" / "sources.json").write_text(json.dumps(origins, indent=1))
+        save_origins(slug, origins)
     return " Sources (kind, role): " + "; ".join(lines) + ".", dirs, start
+
+
+# Where each source copy came from. It lives on the host, outside the project, because a job and the container can
+# change the project: a record there could name any file on your disk, and the next step would copy it in.
+ORIGINS = ROOT / ".dashboard" / "sources"
+
+
+def save_origins(slug, origins):
+    ORIGINS.mkdir(parents=True, exist_ok=True)
+    tmp = ORIGINS / f"{slug}.json.tmp"
+    tmp.write_text(json.dumps(origins, indent=1))
+    tmp.replace(ORIGINS / f"{slug}.json")
+
+
+def text_of(v, name, limit=20000):
+    """A text file a job writes in its project, or "": read with no symlink on the way (ev/safe.py)."""
+    try:
+        return safe.read(v, name)[:limit].decode("utf-8", "replace")
+    except OSError:
+        return ""
 
 
 def stamp(path):
@@ -177,11 +195,10 @@ def stamp(path):
 
 def refresh_sources(slug):
     """Copy again each source whose original changed since the last copy (an HTML page you edited after Start).
-    Returns a note for the job's request, or "". build/sources.json holds the originals; a job cannot edit build/."""
+    Returns a note for the job's request, or "". The originals are in ORIGINS, which a job cannot edit."""
     home = folder(slug)
-    record = home / "build" / "sources.json" if home else None
     try:
-        origins = json.loads(record.read_text()) if record else []
+        origins = json.loads((ORIGINS / f"{slug}.json").read_text()) if home else []
     except (OSError, ValueError):
         return ""
     changed, failed = [], []
@@ -193,7 +210,7 @@ def refresh_sources(slug):
             if o.get("kind") == "html":
                 intake.copy(slug, str(path), root=PROJECTS)
             elif o.get("kind") in ("file", "recording") and re.fullmatch(r"sources/(files|recordings)/[^/]+", str(o.get("dest"))):
-                intake.copy_file(path, home / o["dest"])
+                intake.copy_file(path, home, o["dest"])
             else:
                 continue
             o["stamp"] = stamp(path)
@@ -201,7 +218,7 @@ def refresh_sources(slug):
         except (OSError, SystemExit) as e:
             failed.append(f"{path.name} ({e})")
     if changed:
-        record.write_text(json.dumps(origins, indent=1))
+        save_origins(slug, origins)
     note = ""
     if changed:
         note += " Sources changed on disk since the last step, and are copied again: " + ", ".join(
@@ -216,13 +233,15 @@ def refresh_sources(slug):
 
 def write_brief(home, brief):
     """sources/brief.md: the New video dialog's brief, in the requester's words, and a line in sources/index.md."""
-    (home / "sources").mkdir(parents=True, exist_ok=True)
-    (home / "sources" / "brief.md").write_text("# Brief\n\nFrom the person who asked for this video, in their words "
-                                               "(the dashboard's New video dialog).\n\n" + brief + "\n")
-    index = home / "sources" / "index.md"
-    text = index.read_text() if index.is_file() else "# Sources\n\nWhat this video read, and where each came from.\n\n"
+    safe.write(home, "sources/brief.md", "# Brief\n\nFrom the person who asked for this video, in their words "
+                                         "(the dashboard's New video dialog).\n\n" + brief + "\n")
+    try:
+        text = safe.read(home, "sources/index.md").decode("utf-8", "replace")
+    except FileNotFoundError:
+        text = "# Sources\n\nWhat this video read, and where each came from.\n\n"
     if "`brief.md`" not in text:
-        index.write_text(text.rstrip("\n") + "\n- `brief.md`: the requester's brief: who watches, why, what to cover\n")
+        safe.write(home, "sources/index.md",
+                   text.rstrip("\n") + "\n- `brief.md`: the requester's brief: who watches, why, what to cover\n")
 
 
 def plain_name(text):
@@ -262,9 +281,14 @@ def suggest_name(source, page=None):
     return name if ok else None
 
 
+EXACT = ("transcribe",)  # no options: MODEL= names a file to download, FILE= a file to read
+
+
 def bound(slug):
-    """Allow rules that name the job's own slug exactly: `make narrate SLUG=dns`, or with options after a space."""
-    return [rule for target in JOB_MAKE for rule in (f"Bash(make {target} SLUG={slug})", f"Bash(make {target} SLUG={slug} *)")]
+    """Allow rules that name the job's own slug exactly: `make narrate SLUG=dns`, or with options after a space
+    (FORMAT=story, SCENE=hook). The targets in EXACT take no options."""
+    return [rule for target in JOB_MAKE for rule in (f"Bash(make {target} SLUG={slug})",)
+            + (() if target in EXACT else (f"Bash(make {target} SLUG={slug} *)",))]
 
 
 WEB = ("WebSearch", "WebFetch")
@@ -429,16 +453,11 @@ def persist(job, final=False):
     home = folder(slug)
     if not home or (not final and time.time() - job.get("saved_at", 0) < 1):
         return
-    runs = home / "build" / "jobs"
     try:
-        runs.mkdir(parents=True, exist_ok=True)
         new = job["events"][job.get("saved", 0):]
-        with open(runs / f"{job['id']}.jsonl", "a") as log:
-            log.writelines(json.dumps(e) + "\n" for e in new)
+        safe.write(home, f"build/jobs/{job['id']}.jsonl", "".join(json.dumps(e) + "\n" for e in new), append=True)
         job["saved"] = job.get("saved", 0) + len(new)
-        tmp = runs / f"{job['id']}.json.tmp"
-        tmp.write_text(json.dumps({k: job.get(k) for k in META}))
-        tmp.replace(runs / f"{job['id']}.json")
+        safe.write(home, f"build/jobs/{job['id']}.json", json.dumps({k: job.get(k) for k in META}))
         job["saved_at"] = time.time()
     except OSError:
         pass  # history is a nicety; the run itself goes on
@@ -462,7 +481,8 @@ def load_jobs(keep=20):
                 for line in (runs / f"{meta['id']}.jsonl").read_text().splitlines():
                     e = json.loads(line)
                     if isinstance(e, dict) and isinstance(e.get("text"), str):
-                        events.append({"kind": str(e.get("kind", "tool")), "text": e["text"], "agent": str(e.get("agent", "main"))})
+                        events.append({"kind": str(e.get("kind", "tool")), "text": e["text"], "agent": str(e.get("agent", "main")),
+                                       **({"t": float(e["t"])} if isinstance(e.get("t"), (int, float)) else {})})
             except (OSError, ValueError):
                 pass
             job = {k: meta.get(k) for k in META} | {"events": events, "tasks": {}, "saved": len(events), "saved_at": time.time()}
@@ -502,16 +522,17 @@ def start_job(prompt, session=None, read_dir="", argv=None, slug=None, then=None
                 proc = subprocess.Popen(step, cwd=ROOT, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                                         stderr=subprocess.STDOUT, text=True, errors="replace", env=env)
             except OSError as e:
-                job["events"].append({"kind": "result", "text": f"Failed: {e}"})
+                job["events"].append({"kind": "result", "text": f"Failed: {e}", "t": round(time.time(), 1)})
                 job["code"], job["ended"], job["done"] = 127, time.time(), True
                 return
             for raw in proc.stdout:
                 if argv:
                     lines.append(raw.rstrip())
                 try:
-                    job["events"] += events(job, raw)
+                    now = round(time.time(), 1)  # each line keeps its time: the log shows it, so you see the job moves
+                    job["events"] += [{**e, "t": now} for e in events(job, raw)]
                 except Exception as e:  # one odd line must never stop the log: Claude keeps working either way
-                    job["events"].append({"kind": "tool", "agent": "main",
+                    job["events"].append({"kind": "tool", "agent": "main", "t": round(time.time(), 1),
                                           "text": f"The dashboard could not read one line ({type(e).__name__}); it keeps reading."})
                     traceback.print_exc()
                 persist(job)
@@ -523,11 +544,12 @@ def start_job(prompt, session=None, read_dir="", argv=None, slug=None, then=None
                 lane.update(done=True, ended=time.time(), error=True, last="Stopped when the job ended")
         if argv:
             last = next((line for line in reversed(lines) if line.strip()), "no output")
-            job["events"].append({"kind": "result", "text": f"Done: {last}" if code == 0 else f"Failed (exit {code}): {last}"})
+            job["events"].append({"kind": "result", "t": round(time.time(), 1),
+                                  "text": f"Done: {last}" if code == 0 else f"Failed (exit {code}): {last}"})
             if argv[-1] == "doctor":
                 LAST["doctor"] = doctor_result(lines)
         else:
-            job["events"].append({"kind": "result", "text": f"(claude exited with code {code})"})
+            job["events"].append({"kind": "result", "text": f"(claude exited with code {code})", "t": round(time.time(), 1)})
         job["code"], job["ended"], job["done"] = code, time.time(), True
         persist(job, final=True)
 
@@ -596,8 +618,7 @@ def remember(job):
     home = folder(job.get("slug"))
     if home and session_id(job["session"]):
         try:
-            (home / "build").mkdir(exist_ok=True)
-            (home / "build" / "dashboard.json").write_text(json.dumps({"session": job["session"],
+            safe.write(home, "build/dashboard.json", json.dumps({"session": job["session"],
                                                                      "web": job.get("web") is not False,
                                                                      "model": job.get("model") or "",
                                                                      "effort": job.get("effort") or ""}))
@@ -678,6 +699,7 @@ def events(job, raw):
                 lane = finish(job["agents"][lane_id], str(msg.get("status") or ""), str(msg.get("summary") or ""), msg.get("usage"))
                 out.append({"kind": "tool", "text": f"Sub-agent {msg.get('status') or 'ended'}: {lane['name']}", "agent": lane_id})
         elif sub == "permission_denied":
+            agent = job.setdefault("calls", {}).get(msg.get("tool_use_id"), agent)  # who made the refused call
             out.append({"kind": "tool", "agent": agent,
                          "text": f"Not allowed: {msg.get('tool_name') or 'a tool'}. A dashboard job may use only its "
                                  f"listed commands and files, so Claude tries another way. Nothing to do."})
@@ -692,6 +714,8 @@ def events(job, raw):
                 name, i = str(c.get("name", "")), c.get("input") if isinstance(c.get("input"), dict) else {}
                 line = describe(name, i)[:300]
                 out.append({"kind": "tool", "text": line, "agent": agent})
+                if isinstance(c.get("id"), str):
+                    job.setdefault("calls", {})[c["id"]] = agent
                 if name in AGENT_TOOLS and isinstance(c.get("id"), str):
                     add_lane(job, c["id"], i.get("description") or i.get("subagent_type"), i.get("prompt"), agent)
                 if agent == "main":
@@ -971,6 +995,7 @@ def video_info(slug):
             "storyboard": board, "storyboard_stale": stale,
             "script": script.read_text() if script.exists() else "",
             "intent": (v / "intent.md").read_text()[:20000] if gates.has_intent(v) else "",
+            "issues": text_of(v, "issues.md"),
             "audio": url(v / "build/narration.wav") if (v / "build/narration.wav").exists() else None,
             "previews": [url(p) for p in full(v, "out/*-720p.mp4")],
             "finals": [url(p) for p in full(v, "out/*-1080p.mp4")],

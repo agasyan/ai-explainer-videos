@@ -199,8 +199,14 @@ def narrate(video):
     return spec, narration
 
 
+# whisper.cpp model names, the only values MODEL may take: each becomes part of a file name and a download URL.
+MODELS = re.compile(r"(tiny|base|small|medium)(\.en)?|large-v[123]|large-v3-turbo")
+
+
 def transcribe(path, model="base.en"):
     """Speech to text with whisper.cpp: writes <file>.txt and <file>.srt next to the file."""
+    if not isinstance(model, str) or not MODELS.fullmatch(model):
+        raise SystemExit(f"MODEL must be a whisper.cpp model, such as base.en, small, or large-v3-turbo, not {model!r}")
     m = WHISPER if model == "base.en" else VIDEOS / ".models" / f"ggml-{model}.bin"  # the only writable folder
     if not m.exists():
         m.parent.mkdir(exist_ok=True)

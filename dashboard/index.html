@@ -16,6 +16,17 @@
   <span class="muted" id="system-line">Checking Docker</span>
   <button type="button" class="btn" id="new-open">+ New video</button>
 </header>
+<dialog id="agent-dialog" class="newdlg agentdlg" aria-labelledby="agent-title">
+  <div class="dlg-head"><h2 id="agent-title" class="card-title">Agent</h2>
+    <span class="turn" id="agent-state"></span>
+    <button type="button" class="btn" data-variant="ghost" id="agent-prev" aria-label="Previous agent">&larr;</button>
+    <button type="button" class="btn" data-variant="ghost" id="agent-next" aria-label="Next agent">&rarr;</button>
+    <button type="button" class="btn" data-variant="ghost" id="agent-close" aria-label="Close">Close</button></div>
+  <p class="muted" id="agent-meta"></p>
+  <div id="agent-body" class="stack"></div>
+  <div class="dlg-foot"><button type="button" class="btn" data-variant="outline" id="agent-steps">Show its steps in the log</button>
+    <span class="spacer"></span><span class="muted">&larr; &rarr; other agents, Esc closes</span></div>
+</dialog>
 <dialog id="new-dialog" class="newdlg" aria-labelledby="new-title">
   <form id="new" class="stack">
     <div class="dlg-head"><h2 id="new-title" class="card-title">New video</h2>
@@ -123,6 +134,7 @@
           <div class="decide stack" id="decide">
             <div id="check-question" hidden><strong id="check-text"></strong></div>
             <div class="buttons"><button type="button" class="btn" id="approve" hidden></button>
+              <button type="button" class="btn" data-variant="secondary" id="approve-hd" hidden></button>
               <span class="muted" id="approve-note" hidden></span></div>
             <form id="reply" class="stack">
               <div class="field">

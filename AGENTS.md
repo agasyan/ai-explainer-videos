@@ -1,6 +1,6 @@
 # AI explainer videos
 
-Each new video is a project: `projects/<YYYYMMDD>-<name>/`, made first, and every file of its work stays inside it. An agent writes `research.md` and `sources/` (what it read), `script.yaml` (brief, narration, storyboard), `style.css`, and `scenes/<scene>.html` (HTML, SVG, and CSS, animated with the `EV` runtime in `ev/web/ev.js`). Docker makes the voice, renders the frames in headless Chromium, and writes the MP4. Every tool in the pipeline is open source.
+Each new video is a project: `projects/<YYYYMMDD>-<name>/`, made first, and every file of its work stays inside it. An agent writes `research.md` and `sources/` (what it read), `script.yaml` (brief, narration, storyboard), `style.css`, `scenes/<scene>.html` (HTML, SVG, and CSS, animated with the `EV` runtime in `ev/web/ev.js`), and `issues.md` (the problems it met in each step, each with an idea to fix it). Docker makes the voice, renders the frames in headless Chromium, and writes the MP4. Every tool in the pipeline is open source.
 
 - Run every tool through `make` (`make help` lists them). Install nothing on the host.
 - Start with `make new SLUG=<name> TITLE=...` (or `make from-html`). It prints the project id; use it as `SLUG=` in each next command. Videos made before projects stay in `generated_videos/<slug>/` and keep working.

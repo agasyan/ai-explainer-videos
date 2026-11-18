@@ -169,8 +169,18 @@ img.sheet { width: 100%; border-radius: var(--radius); }
 .logbar { flex-wrap: wrap; gap: 8px; }
 #log .stepgroup, #log .step { margin: 0 0 4px; }
 #log .log-say.step { font: 13px/1.5 var(--font, sans-serif); color: var(--foreground); }
-#log details.actions { margin: 0 0 6px 118px; }
+#log details.actions { margin: 0 0 6px 184px; }  /* under the text: time + name */
 #log details.actions summary { font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #log .action { padding-left: 10px; border-left: 2px solid var(--border); color: var(--muted-foreground); overflow-wrap: anywhere; }
 #log .problem { color: oklch(0.58 0.2 27); font-weight: 600; }
 #log-new { align-self: center; }
+
+/* An agent's task and report: one modal, so nothing in the card grid grows; arrows move to the next agent. */
+.agentdlg { width: min(980px, calc(100vw - 32px)); overflow: auto; }
+.agentdlg .dlg-head .turn { flex: none; }
+.agentdlg h3 { margin: 4px 0; font-size: 14px; }
+.agentdlg .md { max-height: none; }
+.agent .when { font-size: 12px; }
+.agent .when.quiet { color: oklch(0.55 0.16 60); }
+#log .time { display: inline-block; min-width: 66px; color: var(--muted-foreground); font: 11px/1.5 ui-monospace, monospace; }
+.issues { margin-top: 8px; }

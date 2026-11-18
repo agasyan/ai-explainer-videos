@@ -21,6 +21,7 @@ def setUpModule():
     PROJECTS_TMP = tempfile.TemporaryDirectory()
     server.PROJECTS = Path(PROJECTS_TMP.name) / "projects"
     server.PROJECTS.mkdir()
+    server.ORIGINS = Path(PROJECTS_TMP.name) / ".dashboard" / "sources"
 
 
 def tearDownModule():
@@ -47,6 +48,8 @@ class CommandTest(unittest.TestCase):
         self.assertIn("Bash(make preview SLUG=dns *)", allowed)
         self.assertFalse(any(r.startswith("Bash(make narrate:") or r.startswith("Bash(make preview:") for r in allowed))
         self.assertFalse(any("SLUG=dns2" in r for r in allowed))
+        self.assertIn("Bash(make transcribe SLUG=dns)", allowed)
+        self.assertNotIn("Bash(make transcribe SLUG=dns *)", allowed)  # MODEL= would name a file to download
 
     def test_jobs_run_in_dont_ask_mode_and_deny_ask_rules(self):
         cmd = server.command("x")
@@ -194,6 +197,15 @@ class ProgressTest(unittest.TestCase):
             {"type": "tool_result", "tool_use_id": "t1", "content": [{"type": "text", "text": "DONE: 4 claims"}]}]}})
         self.assertTrue(lane["done"])
         self.assertEqual("DONE: 4 claims", lane["report"])
+
+    def test_a_refused_call_shows_under_the_agent_that_made_it(self):
+        job = self.job()
+        self.line(job, {"type": "assistant", "parent_tool_use_id": None, "message": {"content": [
+            {"type": "tool_use", "id": "t1", "name": "Agent", "input": {"description": "Draw scene hook", "prompt": "Draw"}}]}})
+        self.line(job, {"type": "assistant", "parent_tool_use_id": "t1", "message": {"content": [
+            {"type": "tool_use", "id": "t3", "name": "Bash", "input": {"command": "ls scenes"}}]}})
+        out = self.line(job, {"type": "system", "subtype": "permission_denied", "tool_name": "Bash", "tool_use_id": "t3"})
+        self.assertEqual("t1", out[0]["agent"])
 
     def test_a_denied_tool_is_a_log_line_not_a_crash(self):
         job = self.job()
@@ -721,8 +733,8 @@ class PageTest(unittest.TestCase):
                 copied = sorted(str(p.relative_to(home)) for p in home.rglob("*") if p.is_file())
             finally:
                 server.VIDEOS, server.PROJECTS = saved
-        self.assertEqual(["assets/page/chart.png", "assets/page/index.html", "assets/page/source.json", "build/sources.json",
-                          "sources/files/notes.md", "sources/recordings/sync.m4a"], copied)
+        self.assertEqual(["assets/page/chart.png", "assets/page/index.html", "assets/page/source.json",
+                          "sources/files/notes.md", "sources/recordings/sync.m4a"], copied)  # the origins: host only
         prompt = started[0]["prompt"]
         self.assertIn(f"Start with make from-html SLUG={TODAY}-rep", prompt)
         self.assertIn(f"1. HTML page, Main story: the page report.html", prompt)
@@ -794,8 +806,33 @@ class PageTest(unittest.TestCase):
                 self.assertIn("new cost", (home / "assets" / "page" / "index.html").read_text())
                 self.assertEqual("second notes", (home / "sources" / "files" / "notes.md").read_text())
                 self.assertEqual("", server.refresh_sources(r["slug"]))  # copied once
+                secret = Path(tmp) / "secret.txt"
+                secret.write_text("not for the video")
+                (home / "build").mkdir(exist_ok=True)  # a record a job planted in its project counts for nothing
+                (home / "build" / "sources.json").write_text(json.dumps([{"kind": "file", "path": str(secret),
+                                                                         "stamp": [0, 0], "dest": "sources/files/s.txt"}]))
+                self.assertEqual("", server.refresh_sources(r["slug"]))
+                self.assertFalse((home / "sources" / "files" / "s.txt").exists())
             finally:
                 server.VIDEOS, server.PROJECTS = saved
+
+    def test_a_symlink_in_the_project_stops_the_dashboard_writing_through_it(self):
+        import os
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            outside, home = Path(tmp) / "outside", server.PROJECTS / f"{TODAY}-linked"
+            outside.mkdir()
+            home.mkdir()
+            try:
+                os.symlink(outside, home / "sources")  # what code in the container could do
+                with self.assertRaises(OSError):
+                    server.write_brief(home, "who watches")
+                os.symlink(outside, home / "build")
+                server.persist({"slug": home.name, "id": "j1", "events": [{"kind": "say", "text": "x"}]}, final=True)
+                self.assertEqual([], list(outside.iterdir()))
+            finally:
+                import shutil
+                shutil.rmtree(home)
 
     def test_each_run_says_what_it_is_for(self):
         def check(video):

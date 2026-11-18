@@ -17,7 +17,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.append(str(Path(__file__).resolve().parent.parent))  # last, so a stray file cannot shadow the standard library
-from ev import projects  # noqa: E402 (standard library only)
+from ev import projects, safe  # noqa: E402 (standard library only)
 
 PAGES = (".html", ".htm")
 KINDS = {".css", ".js", ".mjs", ".json", ".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".avif", ".ico",
@@ -72,14 +72,14 @@ def local_refs(text):
     return out
 
 
-def copy_file(src, dst):
-    """Copy one regular file, refusing a symlink at the last step (O_NOFOLLOW)."""
+def copy_file(src, video, rel):
+    """Copy one regular file to video/rel. It refuses a symlink at src's last step (O_NOFOLLOW), and anywhere on the
+    way to video/rel (ev/safe.py): code in the container can put one there."""
     fd = os.open(src, os.O_RDONLY | os.O_NOFOLLOW)
     try:
         if not stat.S_ISREG(os.fstat(fd).st_mode):
             raise OSError("not a regular file")
-        dst.parent.mkdir(parents=True, exist_ok=True)
-        with os.fdopen(fd, "rb", closefd=False) as f, open(dst, "wb") as out:
+        with os.fdopen(fd, "rb", closefd=False) as f, safe.create(video, rel) as out:
             shutil.copyfileobj(f, out)
     finally:
         os.close(fd)
@@ -94,16 +94,18 @@ def copy(slug, file, base=None, root=None):
     src = page_path(file, base)
     if (root / slug).is_dir():
         folder = root / slug
-        if not (folder / "assets" / "page").is_dir():
+        if not safe.is_dir(folder, "assets/page"):
             raise SystemExit(f"projects/{slug} is not a from-html project. Use a new name.")
     else:
         folder = root / projects.new_id(slug, projects=root)
-    page = folder / "assets" / "page"
     text = src.read_text(errors="replace")
     root = src.parent
     copied, skipped, total = [], [], src.stat().st_size
-    shutil.rmtree(page, ignore_errors=True)
-    copy_file(src, page / "index.html")
+    try:
+        safe.remove_tree(folder, "assets/page")
+        copy_file(src, folder, "assets/page/index.html")
+    except OSError as e:
+        raise SystemExit(f"Cannot copy the page into {folder.name}/assets/page/: {e}") from None
     for ref in local_refs(text):
         target = Path(os.path.realpath(root / ref))
         if not target.is_relative_to(root):
@@ -117,16 +119,16 @@ def copy(slug, file, base=None, root=None):
         else:
             rel = target.relative_to(root)
             try:
-                copy_file(target, page / rel)
+                copy_file(target, folder, Path("assets/page") / rel)
             except OSError as e:
                 skipped.append(f"{ref}: {e.strerror or e}")
                 continue
             total += target.stat().st_size
             copied.append(str(rel))
-    (page / "source.json").write_text(json.dumps({
+    safe.write(folder, "assets/page/source.json", json.dumps({
         "file": src.name, "copied": copied, "skipped": skipped,
         "at": datetime.now(timezone.utc).isoformat(timespec="minutes")}, indent=1) + "\n")
-    (folder / "sources").mkdir(exist_ok=True)
+    safe.mkdirs(folder, "sources")
     return folder, src, copied, skipped
 
 

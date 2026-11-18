@@ -17,6 +17,8 @@ const post = (url, body) => fetch(url, { method: "POST", body: JSON.stringify(bo
 }).catch(() => ({ error: "Could not reach the dashboard. Is make dashboard still running?" }));
 const clock = s => { const t = Math.max(0, Math.round(s)); return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`; };
 const since = t => clock(Date.now() / 1000 - t);
+const hms = t => new Date(t * 1000).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit", hourCycle: "h23" });
+const ago = t => { const s = Math.max(0, Math.round(Date.now() / 1000 - t)); return s < 60 ? `${s} s ago` : `${Math.floor(s / 60)} min ago`; };
 
 // A video with its subtitle track (switch it on in the player) and a transcript: click a line to jump there.
 function player(src) {
@@ -292,7 +294,7 @@ function checkPane(v, c) {
   const can = step === "intent" || step === "preview";
   const withPlan = step === "preview" && st.plan !== "approved";
   const key = JSON.stringify([v.status, v.fingerprints, v.storyboard && v.storyboard.source, v.storyboard_stale,
-    v.previews, v.contacts, v.finals, v.audio, v.verdict, c.running]);
+    v.previews, v.contacts, v.finals, v.audio, v.verdict, v.issues, c.running]);
   if (key !== shownCheck) {  // rebuilding would stop a playing video, so only when something changed
     shownCheck = key;
     const script = el("details", {}, [el("summary", { textContent: "script.yaml" }), el("pre", { textContent: v.script })]);
@@ -321,23 +323,40 @@ function checkPane(v, c) {
           : "Approved: this 720p video is the final. Share it with the audience you approved." }),
         ...(v.verdict && !v.finals.length ? [el("p", {}, [el("strong", { textContent: `1080p: ${v.verdict["1080p"]}. ` }), text(v.verdict.why)])] : [])];
     }
+    // issues.md: what slowed Claude down in each step, and an idea to fix it. It is about the tool, not the video.
+    const issues = (v.issues || "").replace(/^# .*\n+/, "");
+    if (issues.trim()) body.push(el("details", { className: "fold issues" }, [
+      el("summary", { textContent: `Issues Claude met, and ideas to fix them (${(issues.match(/^## /gm) || []).length || 1} step${(issues.match(/^## /gm) || []).length === 1 ? "" : "s"})` }),
+      el("article", { className: "md" }, markdownView(issues))]));
     $("check-body").replaceChildren(...body);
     $("decide").hidden = !can && c.running;
     $("check-question").hidden = !can;
     $("check-text").textContent = can ? `Check the ${step}${step === "preview" && withPlan ? " and the plan" : ""}: ${v.checklist[step]}` : "";
+    // The preview check ends the work, so its buttons say what comes next: keep the 720p, or render 1080p too.
+    const preview = step === "preview" && v.previews.length > 0;
     $("approve").hidden = !can;
-    $("approve").textContent = `Approve the ${step}${step === "preview" && withPlan ? " and the plan" : ""}`;
+    $("approve").textContent = preview ? "Approve and download 720p" : `Approve the ${step}${step === "preview" && withPlan ? " and the plan" : ""}`;
+    $("approve-hd").hidden = !preview;
+    $("approve-hd").textContent = `Approve and render 1080p (${v.estimate["1080p"]})`;
     $("approve-note").hidden = !can;
     $("approve-note").textContent = step === "intent" ? "Claude then writes the script, makes the voice, draws the scenes, and renders 720p."
-      : "This 720p video is the final. 1080p is optional after it.";
+      : `Approving covers the video${withPlan ? ", the script, and the voice" : ""}. ${v.verdict ? `1080p: ${v.verdict["1080p"]}. ${v.verdict.why}` : "1080p is optional."}`;
     $("check-question").hidden = !can;
-    $("approve").onclick = async () => {  // sends the fingerprint shown, so a change after this view is refused
+    const approve = then => async () => {  // sends the fingerprint shown, so a change after this view is refused
       const r = await post(`/api/videos/${slug}/approve`, { step, expected: v.fingerprints[step] });
       if (r.error) return alert(r.error);
       shownCheck = "";
       if (r.id) { run = r.id; lane = null; }
+      if (then === "download") v.previews.forEach(u => { const a = el("a", { href: `${u}?download=1`, download: "" }); document.body.append(a); a.click(); a.remove(); });
+      if (then === "1080p") {
+        const job = await post(`/api/videos/${slug}/final`, {});
+        if (job.error) return alert(job.error);
+        run = job.id; lane = null; tab = "activity"; showTab();
+      }
       refresh();
     };
+    $("approve").onclick = approve(preview ? "download" : null);
+    $("approve-hd").onclick = approve("1080p");
   }
   $("reply").hidden = c.running || !can;  // changes go with a check: the intent or the preview
 }
@@ -354,7 +373,6 @@ $("reply").onsubmit = async e => {
 // ---------- Activity: each run, each agent, and its log ----------
 
 let run = null, runSince = 0, runEvents = [], lane = null, polling = false;
-const opened = new Set();  // task and report panels you opened stay open across refreshes
 
 function pickRun(id) { run = id; runSince = 0; runEvents = []; lane = null; logSeen = 0; openSteps.clear(); $("log").replaceChildren(); }
 
@@ -373,24 +391,61 @@ function agentCard(r, id, a) {
   const steps = main ? runEvents.filter(e => e.agent === "main" && e.kind === "tool").length : a.steps;
   const state = main ? (!r.done ? "running" : r.code ? "stopped" : "done") : (!a.done ? "running" : a.error ? "error" : "done");
   const took = main ? (r.ended || Date.now() / 1000) - r.started : (a.ended || Date.now() / 1000) - a.started;
-  const panel = (key, label, body) => {
-    const d = el("details", { open: opened.has(`${id}:${key}`) }, [el("summary", { textContent: label }), el("pre", { textContent: body })]);
-    d.ontoggle = () => (d.open ? opened.add(`${id}:${key}`) : opened.delete(`${id}:${key}`));
-    return d;
-  };
+  const last = lastTime(id), quiet = state === "running" && last && Date.now() / 1000 - last > 120;
   return el("div", { className: `agent agent-${state}${lane === id ? " selected" : ""}` }, [
     el("div", { className: "vhead" }, [el("strong", { textContent: main ? (r.system ? "Render job (make)" : "Main Claude") : a.name }),
       el("span", { className: `turn turn-${state === "running" ? "working" : state === "done" ? "done" : "you"}`,
         textContent: `${state}${!main && a.background ? " in background" : ""} · ${clock(took)}` })]),
     el("div", { className: "muted", textContent: main && r.system ? `${runEvents.length} output lines · ${r.prompt}`
       : `${steps} tool call${steps === 1 ? "" : "s"} · now: ${main ? r.now : a.last}` }),
-    el("div", { className: "buttons" }, [el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
-      textContent: lane === id ? "Showing its steps" : "Show its steps", onclick: () => { lane = id; renderLog(r); renderAgents(r); } })]),
-    ...(!main && a.task ? [panel("task", "Task it was given", a.task)] : []),
-    ...(!main && a.report ? [panel("report", "Its report", a.report)] : [])]);
+    ...(last ? [el("div", { className: `muted when${quiet ? " quiet" : ""}`,
+      textContent: `last step ${hms(last)}, ${ago(last)}${quiet ? ": no new step for a while (it can be thinking or rendering)" : ""}` })] : []),
+    el("div", { className: "buttons" }, [
+      el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
+        textContent: lane === id ? "Showing its steps" : "Show its steps", onclick: () => { lane = id; renderLog(r); renderAgents(r); } }),
+      ...(!main && (a.task || a.report) ? [el("button", { type: "button", className: "btn", dataset: { variant: "ghost" },
+        textContent: a.report ? "Task and report" : "Task", onclick: () => openAgent(id) })] : [])])]);
 }
 
+// One modal for a sub-agent's task and report. It updates while it is open, and the arrow keys move to the
+// next agent, so you can read each one without opening and closing panels in the cards.
+let shownAgent = null, shownAgentKey = "";
+const lastTime = id => { for (let i = runEvents.length - 1; i >= 0; i--) if ((runEvents[i].agent || "main") === id && runEvents[i].t) return runEvents[i].t; return 0; };
+function openAgent(id) { shownAgent = id; shownAgentKey = ""; fillAgent(lastRun); if (!$("agent-dialog").open) $("agent-dialog").showModal(); }
+function fillAgent(r) {
+  if (!r || !shownAgent || !r.agents[shownAgent]) return;
+  const a = r.agents[shownAgent], key = JSON.stringify([shownAgent, a.done, a.error, a.steps, a.last, (a.report || "").length]);
+  if (key === shownAgentKey) return;  // rebuilding would jump the scroll while you read
+  shownAgentKey = key;
+  const state = !a.done ? "running" : a.error ? "error" : "done";
+  $("agent-title").textContent = a.name;
+  $("agent-state").className = `turn turn-${state === "running" ? "working" : state === "done" ? "done" : "you"}`;
+  $("agent-state").textContent = `${state} · ${clock((a.ended || Date.now() / 1000) - a.started)}`;
+  const last = lastTime(shownAgent);
+  $("agent-meta").textContent = `Started ${hms(a.started)}${a.ended ? `, ended ${hms(a.ended)}` : ""} · ${a.steps} tool call${a.steps === 1 ? "" : "s"}`
+    + (last ? ` · last step ${hms(last)}` : "") + (a.last ? ` · now: ${a.last}` : "");
+  $("agent-body").replaceChildren(
+    ...(a.report ? [el("h3", { textContent: "Its report" }), el("article", { className: "md" }, markdownView(a.report))] : []),
+    ...(a.task ? [el("details", { open: !a.report }, [el("summary", { textContent: "Task it was given" }),
+      el("article", { className: "md" }, markdownView(a.task))])] : []));
+}
+function stepAgent(dir) {
+  const ids = Object.keys((lastRun && lastRun.agents) || {}).filter(k => lastRun.agents[k].task || lastRun.agents[k].report);
+  const i = ids.indexOf(shownAgent);
+  if (ids.length) openAgent(ids[(i + dir + ids.length) % ids.length]);
+}
+$("agent-close").onclick = () => $("agent-dialog").close();
+$("agent-prev").onclick = () => stepAgent(-1);
+$("agent-next").onclick = () => stepAgent(1);
+$("agent-steps").onclick = () => { lane = shownAgent; $("agent-dialog").close(); pollRun(true); };
+$("agent-dialog").onclick = e => { if (e.target === $("agent-dialog")) $("agent-dialog").close(); };  // a click outside
+$("agent-dialog").onkeydown = e => {
+  if (e.key === "ArrowLeft" || e.key === "ArrowRight") { e.preventDefault(); stepAgent(e.key === "ArrowLeft" ? -1 : 1); }
+};
+
 function renderAgents(r) {
+  lastRun = r;
+  if ($("agent-dialog").open) fillAgent(r);
   const subs = Object.entries(r.agents || {});
   $("agents").replaceChildren(agentCard(r, "main", null), ...subs.map(([id, a]) => agentCard(r, id, a)));
   $("log-filter-label").textContent = lane ? `Steps of: ${agentName(r, lane)}` : `All agents (${subs.length} sub-agent${subs.length === 1 ? "" : "s"})`;
@@ -435,13 +490,15 @@ function renderLog(r) {
     else steps.push({ head: e, actions: [] });
   }
   const line = (e, cls) => el("div", { className: `${cls} log-${e.kind}${isProblem(e) ? " problem" : ""}` }, [
+    el("span", { className: "time", textContent: e.t ? hms(e.t) : "" }),
     el("span", { className: "who", textContent: agentName(r, e.agent || "main") }),
     ...(isProblem(e) ? [el("span", { className: "mark", textContent: "✕ " })] : []),
     el("span", { textContent: tidy(e), title: e.kind === "tool" && tidy(e) !== e.text ? e.text : "" })]);
   box.replaceChildren(...(steps.length ? steps.map(s => {
     if (!s.actions.length) return line(s.head, "step");
     const fold = el("details", { className: "actions", open: openSteps.has(s.head.i) }, [
-      el("summary", { textContent: `${s.actions.length} action${s.actions.length === 1 ? "" : "s"}: ${tidy(s.actions[s.actions.length - 1])}` }),
+      el("summary", { textContent: `${s.actions.length} action${s.actions.length === 1 ? "" : "s"}${
+        s.actions[s.actions.length - 1].t ? `, last at ${hms(s.actions[s.actions.length - 1].t)}` : ""}: ${tidy(s.actions[s.actions.length - 1])}` }),
       ...s.actions.map(a => line(a, "action"))]);
     fold.ontoggle = () => (fold.open ? openSteps.add(s.head.i) : openSteps.delete(s.head.i));
     return el("div", { className: "stepgroup" }, [line(s.head, "step"), fold]);
