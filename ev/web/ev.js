@@ -277,8 +277,9 @@
   }
 
   // ---------- captions ----------
-  // "pop": words appear as the voice says them, and the current word pops. "line": the whole line shows, and
-  // words light up. Words in *asterisks* in `say` get the key color. Colors and font follow the look (base.css).
+  // "line": the whole sentence shows in 1 or 2 lines, like a film subtitle, and the word the voice says takes the
+  // highlight color. "pop": words appear as the voice says them, and the current word pops. Words in *asterisks*
+  // in `say` get the key color. Colors and font follow the look (base.css).
 
   let captions = null;
   let line = null;
@@ -293,8 +294,11 @@
       spans = [];
       if (cue) {
         line = captions.appendChild(Object.assign(document.createElement("span"), { className: "line" }));
-        spans = cue.words.map(w => line.appendChild(
-          Object.assign(document.createElement("span"), { className: w.key ? "w key" : "w", textContent: w.w })));
+        spans = cue.words.map((w, i) => {
+          if (cue.break && i === cue.break) line.appendChild(document.createElement("br"));  // line 2 of the caption
+          return line.appendChild(
+            Object.assign(document.createElement("span"), { className: w.key ? "w key" : "w", textContent: w.w }));
+        });
       }
     }
     if (!cue) return;
@@ -306,7 +310,8 @@
       const next = i + 1 < cue.words.length ? cue.words[i + 1].start : cue.end;
       s.classList.toggle("on", since >= 0);
       s.classList.toggle("now", since >= 0 && t < next);
-      s.style.transform = `scale(${1 + 0.15 * (since >= 0 ? Math.max(0, 1 - since / 0.18) : 0)})`;  // pop, then settle
+      if (D.captions === "pop")  // pop, then settle; a line caption stays still, so only the color moves
+        s.style.transform = `scale(${1 + 0.15 * (since >= 0 ? Math.max(0, 1 - since / 0.18) : 0)})`;
     });
   }
 

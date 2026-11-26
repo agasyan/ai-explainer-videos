@@ -45,10 +45,11 @@ Options for `stills`, `preview`, and `video`: `FORMAT=landscape|story|both` (def
 | `voice` | A Kokoro English voice (list below) | `af_heart` |
 | `speed` | Voice speed | `1.0` |
 | `gap` | Seconds of silence after each beat | `0.35` |
-| `captions` | `pop` (words appear as said), `line` (whole line, words light up), or `off` | `pop` |
+| `captions` | `line` (the whole sentence in 1 or 2 lines, the said word lights up), `pop` (words appear as said), or `off` | `line` |
 | `engine` | `playwright`, or `hyperframes` for parallel capture and `<video>` clips ([how-it-works.md](how-it-works.md#engines)) | `playwright` |
 | `scenes` | List of scenes; or use `parts`, each with a `title` and `scenes` | |
 | scene `id` | Lowercase letters, digits, dashes; names `scenes/<id>.html` | |
+| scene `title` | The scene's point in 8 words or fewer. It names the scene's chapter mark in the MP4 and its line in `out/<name>.chapters.txt` | the scene `id` in words |
 | scene `treatment` | One of the moodboard's `treatments`, for example `title`, `flow`, `timeline`; or `page` for a captured page section ([from-html.md](from-html.md)) | |
 | scene `three_why` | One line: why 3D explains this scene better than 2D. Needed for a scene that loads three.js | |
 | beat `id`, `say`, `show` | Beat name (lowercase letters, digits, dashes; names its frame), narration (`*key words*` in asterisks get the caption key color), storyboard | |
@@ -79,6 +80,6 @@ A video's folder is `projects/<YYYYMMDD>-<name>/`, or `generated_videos/<slug>/`
 | `build/verdict.json` | Is 1080p worth it? From the last full 720p render | no |
 | `build/hf/<scene or all>/` | The HyperFrames project made for each render (`engine: hyperframes`); one per `SCENE=`, so parallel scene renders stay apart | no |
 | `build/review/*-contact-N.png` | Review frames, 12 per sheet | no |
-| `out/<slug>[-partN]-<format>-720p.mp4` | The final video once you approve it, with captions in the picture and a subtitle track players can switch on | no |
+| `out/<slug>[-partN]-<format>-720p.mp4` | The final video once you approve it, with captions in the picture, a subtitle track players can switch on, and a chapter mark per scene | no |
 | `out/<slug>[-partN]-<format>-1080p.mp4` | Optional 1080p | no |
 | `out/*.srt`, `out/*.vtt` | Caption files for uploads and web players | no |

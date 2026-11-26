@@ -37,6 +37,7 @@ from ev.voice import narrate
 
 WEB = ROOT / "ev" / "web"
 CAPTION_CHARS = {"pop": {"landscape": 28, "story": 16}, "line": {"landscape": 42, "story": 26}}  # per caption line
+CAPTION_MIN = 5 / 6                                         # seconds a caption stays, at least (Netflix)
 ENGINES = ("playwright", "hyperframes")
 JPEG = {"720p": 90, "1080p": 95}                            # screenshot quality; the MP4 is yuv420p x264 CRF 18
 PRESET = {"720p": "veryfast", "1080p": "fast"}              # x264: the final 1080p gets a little more care
@@ -47,27 +48,71 @@ CHUNK_MIN = 240                                             # frames: a shorter 
 
 # ---------- timing ----------
 
-def cue_lines(words, width):
-    """Group timed words into caption lines of `width` characters or fewer; break after . ? ! : ;"""
-    lines, line = [], []
+def caption_text(words):
+    return " ".join(w["w"] for w in words)
+
+
+def line_break(words, width):
+    """Where line 2 starts in a 2-line caption, or None when `words` fit one line. Returns -1 when they do not fit
+    2 lines. The lines come out near equal; a break after , ; : wins a near tie, then a longer line 2."""
+    if len(caption_text(words)) <= width:
+        return None
+    best = None
+    for i in range(1, len(words)):  # i is never 0, so a break is truthy
+        a, b = len(caption_text(words[:i])), len(caption_text(words[i:]))
+        if a <= width and b <= width:
+            score = abs(a - b) - (8 if words[i - 1]["w"][-1] in ",;:" else 0) + (1 if a > b else 0)
+            best = min(best or (score, i), (score, i))
+    return best[1] if best else -1  # -1: too long for 2 lines
+
+
+def sentence_captions(words, width):
+    """One sentence as the fewest captions of 2 lines or fewer. A long sentence breaks after its last , ; : that
+    still fits, or else where 2 lines are full, with 3 words or more left for the next caption."""
+    parts = []
+    while words:
+        if line_break(words, width) != -1:
+            parts.append(words)
+            break
+        fit = [i for i in range(1, len(words)) if line_break(words[:i], width) != -1] or [1]  # [1]: one giant word
+        clause = [i for i in fit if i >= 3 and words[i - 1]["w"][-1] in ",;:"]
+        cut = clause[-1] if clause else next((i for i in reversed(fit) if len(words) - i >= 3), fit[-1])
+        parts.append(words[:cut])
+        words = words[cut:]
+    return parts
+
+
+def cue_lines(words, width, lines=1):
+    """Group timed words into captions. lines=1 (pop): one line of `width` characters or fewer, with a break after
+    . ? ! : ; lines=2 (line, SRT, VTT): a whole sentence in 1 or 2 lines, like a film subtitle. Each caption has
+    `break`: the index of the first word of line 2, or None."""
+    groups, group = [], []
     for w in words:
-        if line and len(" ".join(x["w"] for x in line + [w])) > width:
-            lines.append(line)
-            line = []
-        line.append(w)
-        if w["w"][-1] in ".?!:;":
-            lines.append(line)
-            line = []
-    lines += [line] if line else []
-    cues = [{"start": c[0]["start"], "end": c[-1]["end"] + 0.3, "words": c} for c in lines]
+        if lines == 1 and group and len(caption_text(group + [w])) > width:
+            groups.append(group)
+            group = []
+        group.append(w)
+        if w["w"][-1] in (".?!:;" if lines == 1 else ".?!"):
+            groups += [group] if lines == 1 else sentence_captions(group, width)
+            group = []
+    if group:
+        groups += [group] if lines == 1 else sentence_captions(group, width)
+    cues = [{"start": c[0]["start"], "end": max(c[-1]["end"] + 0.3, c[0]["start"] + CAPTION_MIN), "words": c,
+             "break": (max(line_break(c, width) or 0, 0) or None) if lines == 2 else None} for c in groups]
     for a, b in zip(cues, cues[1:]):
         a["end"] = min(a["end"], b["start"])
     return cues
 
 
+def cue_text(cue):
+    """A caption as subtitle text: 1 or 2 lines."""
+    i = cue.get("break")
+    return caption_text(cue["words"]) if not i else caption_text(cue["words"][:i]) + "\n" + caption_text(cue["words"][i:])
+
+
 def caption_style(spec):
-    style = spec.get("captions", "pop")
-    style = {True: "pop", False: "off"}.get(style, style)
+    style = spec.get("captions", "line")
+    style = {True: "line", False: "off"}.get(style, style)
     if style not in ("pop", "line", "off"):
         raise SystemExit(f"captions: use pop, line, or off, not {style!r}")
     return style
@@ -110,7 +155,8 @@ def scene_data(spec, scene, voice, gap, fmt):
     return {"scene": scene["id"], "format": fmt, "look": look, "moodboard": name, "motion": motion,
             "captions": style, "width": width, "height": height,
             "frames": frames, "duration": frames / FPS, "beats": beats,
-            "cues": cue_lines([w for b in beats for w in b["words"]], CAPTION_CHARS["line" if style == "off" else style][fmt])}
+            "cues": cue_lines([w for b in beats for w in b["words"]], CAPTION_CHARS["line" if style == "off" else style][fmt],
+                              lines=1 if style == "pop" else 2)}
 
 
 # ---------- capture ----------
@@ -588,9 +634,29 @@ def stamp(t, sep=","):
     return f"{h:02d}:{m:02d}:{s:06.3f}".replace(".", sep)
 
 
-def assemble(video, stem, clips, voices, cues, length):
+def chapter_title(scene):
+    """A scene's chapter name: its `title:` from script.yaml, or its id in words (hook-plan becomes "Hook plan")."""
+    return " ".join(str(scene.get("title") or "").split()) or str(scene["id"]).replace("-", " ").capitalize()
+
+
+def chapter_meta(chapters, length):
+    """ffmpeg metadata for chapter marks: `chapters` is [(start seconds, title)], in order."""
+    out = [";FFMETADATA1"]
+    for (start, title), end in zip(chapters, [t for t, _ in chapters[1:]] + [length]):
+        safe = "".join("\\" + c if c in "=;#\\\n" else c for c in title)
+        out += ["[CHAPTER]", "TIMEBASE=1/1000", f"START={round(start * 1000)}", f"END={round(end * 1000)}", f"title={safe}"]
+    return "\n".join(out) + "\n"
+
+
+def chapter_list(chapters):
+    """Chapters as lines of `m:ss Title`, the form that a video description takes."""
+    return "".join(f"{int(t // 60)}:{int(t % 60):02d} {title}\n" for t, title in chapters)
+
+
+def assemble(video, stem, clips, voices, cues, length, chapters=()):
     """Join scene clips, place each voice clip at its beat, write SRT and VTT files, and mux the MP4
-    with a subtitle track that players can switch on (off by default, because captions are in the picture)."""
+    with a subtitle track that players can switch on (off by default, because captions are in the picture).
+    With 2 chapters or more, the MP4 gets chapter marks (one per scene) and out/ gets <stem>.chapters.txt."""
     build, out_dir = video / "build" / "parts", video / "out"
     build.mkdir(parents=True, exist_ok=True)
     out_dir.mkdir(exist_ok=True)
@@ -610,10 +676,21 @@ def assemble(video, stem, clips, voices, cues, length):
     srt.write_text("".join(f"{i}\n{stamp(a)} --> {stamp(b)}\n{text}\n\n" for i, (a, b, text) in enumerate(cues, 1)))
     (out_dir / f"{stem}.vtt").write_text(
         "WEBVTT\n\n" + "".join(f"{stamp(a, '.')} --> {stamp(b, '.')}\n{text}\n\n" for a, b, text in cues))
-    subtitles = (["-i", srt, "-map", "0:v", "-map", "1:a", "-map", "2:s", "-c:s", "mov_text",
-                  "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"] if cues else ["-map", "0:v", "-map", "1:a"])
+    inputs = ["-i", picture, "-i", voice]
+    maps = ["-map", "0:v", "-map", "1:a"]
+    if cues:
+        inputs += ["-i", srt]
+        maps += ["-map", "2:s", "-c:s", "mov_text", "-metadata:s:s:0", "language=eng", "-disposition:s:0", "0"]
+    listed = out_dir / f"{stem}.chapters.txt"
+    listed.unlink(missing_ok=True)
+    if len(chapters) > 1:  # one chapter is the whole video: no marks
+        meta = build / f"{stem}.ffmeta"
+        meta.write_text(chapter_meta(chapters, length))
+        listed.write_text(chapter_list(chapters))
+        maps += ["-map_chapters", len(inputs) // 2]  # the metadata file is the next input
+        inputs += ["-f", "ffmetadata", "-i", meta]
     out = out_dir / f"{stem}.mp4"
-    ffmpeg("-i", picture, "-i", voice, *subtitles, "-c:v", "copy",
+    ffmpeg(*inputs, *maps, "-c:v", "copy",
            "-af", "loudnorm=I=-16:TP=-1.5:LRA=11", "-c:a", "aac", "-b:a", "192k", "-ar", 48000,
            "-movflags", "+faststart", out)
     return out
@@ -667,7 +744,8 @@ def render(video, quality, fmt=None, part=None, scene=None):
                 for s in chosen:
                     data = scene_data(spec, s, voice["scenes"][s["id"]], voice["gap"], f)
                     jobs.append({"data": data, "base": cache_base(video, data, engine, quality), "quality": quality,
-                                 "voice": voice["scenes"][s["id"]], "webgl": s["id"] in threes})
+                                 "voice": voice["scenes"][s["id"]], "webgl": s["id"] in threes,
+                                 "title": chapter_title(s)})
                 parts.append((f, n, jobs))
         every = [j for _, _, jobs in parts for j in jobs]
         for i, job in enumerate(every, 1):
@@ -754,19 +832,20 @@ def assemble_part(video, fmt, n, jobs, scene, many, quality):
     """Join one part's scene clips with its voice, print its review frames and lint. Returns the MP4 and its
     review stills, as (image, "scene/beat", show)."""
     print(f"render {fmt} {quality} part {n}", flush=True)
-    clips, voices, cues, shots, lint, offset = [], [], [], [], [], 0.0
+    clips, voices, cues, shots, lint, chapters, offset = [], [], [], [], [], [], 0.0
     for job in jobs:
         data, base = job["data"], job["base"]
         clips.append(base.with_suffix(".mp4"))
+        chapters.append((offset, job.get("title") or data["scene"]))
         lint += json.loads(base.with_suffix(".lint.json").read_text())
         for b, clip in zip(data["beats"], job["voice"]):
             voices.append((offset + b["start"], clip["wav"]))
             shots.append((base / f"{b['id']}.jpg", f"{data['scene']}/{b['id']}", b["show"]))
-        lines = cue_lines([w for b in data["beats"] for w in b["words"]], CAPTION_CHARS["line"][fmt])  # SRT and VTT
-        cues += [(offset + c["start"], offset + c["end"], " ".join(w["w"] for w in c["words"])) for c in lines]
+        lines = cue_lines([w for b in data["beats"] for w in b["words"]], CAPTION_CHARS["line"][fmt], lines=2)  # SRT, VTT
+        cues += [(offset + c["start"], offset + c["end"], cue_text(c)) for c in lines]
         offset += data["duration"]
     stem = f"{video.name}{f'-part{n}' if many else ''}{f'-{scene}' if scene else ''}-{fmt}-{quality}"
-    out = assemble(video, stem, clips, voices, cues, offset)
+    out = assemble(video, stem, clips, voices, cues, offset, chapters)
     print(f"DONE {out} ({seconds(out):.0f}s)")
     report(video, stem, shots, lint, fmt)
     return out, shots

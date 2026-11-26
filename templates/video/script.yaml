@@ -18,7 +18,7 @@ three: true               # allow 3D (three.js) where it explains better than 2D
 voice: af_heart           # Kokoro, local: af_heart, af_bella, am_michael, am_fenrir (US); bf_emma, bm_george (UK)
 speed: 1.0                # 0.9 is slower, 1.1 is faster
 gap: 0.35                 # seconds of silence after each beat
-captions: pop             # pop (words appear as said), line (whole line, words light up), or off
+captions: line            # line (the whole sentence shows, the said word lights up), pop (words appear as said), or off
 engine: playwright        # playwright, or hyperframes (parallel, faster, plays <video> clips; docs/scenes.md)
 
 # One part. For a series, replace `scenes:` with `parts:` (docs/writing.md, "Long topics").
@@ -26,10 +26,11 @@ engine: playwright        # playwright, or hyperframes (parallel, faster, plays 
 # *Asterisks* in `say` mark key words: the voice ignores them, and the captions color them.
 scenes:
   - id: hook              # page: scenes/hook.html
+    title: The answer     # optional: the scene's point in 8 words or fewer; it names the scene's chapter mark
     treatment: title      # one of the moodboard's treatments (its moodboard.md)
     beats:
       - id: hook
-        say: In one minute, you will know *how this works*.
+        say: Here is *how this works*, in one sentence.  # the answer itself, never a promise of it (docs/writing.md)
         show: The title fades in. A curved line draws across the screen.
       - id: plan
         say: First the problem. Then the idea. Then one example.

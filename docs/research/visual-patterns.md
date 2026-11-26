@@ -21,6 +21,10 @@ Gathered 2026-11-18 by researcher agents, each source opened on the web. Every c
 | L13 | In 6.9M edX sessions, median engagement is 6 min at most, whatever the length; 0 to 3 min videos are mostly watched past three quarters | https://www.cs.rochester.edu/hci/pubs/pdfs/edX-MOOC-video-production-and-engagement_LAS-2014.pdf | (none opened) | one source; lecture videos |
 | L14 | Speaking rates ran 48 to 254 words a minute (mean 156); faster speech held viewers longer | same as L13 | (none opened) | one source |
 
+| L15 | Captions cut into phrases need fewer eye movements between the text and the picture than captions shown word by word | https://ddd.uab.cat/pub/artpub/2018/238546/joueyemov_a2018v11n3p2.pdf (Gerber-Morón and Szarkowska 2018, which reports Rajendran et al. 2013) | (none opened; the 2013 paper did not load) | one source |
+| L16 | Time-synchronized word highlights: viewers prefer them for learning, and find them too distracting to replace standard captions (n = 49) | https://arxiv.org/abs/2307.05870 (Draxler et al. 2023) | (none opened) | one source |
+| L17 | Learners often re-watch a video and look for one part of it. Tools to scan a video helped them narrow down; task performance did not differ (a lab study) | https://www.cs.rochester.edu/hci/pubs/pdfs/data-driven-educational-video-navigation_UIST-2014.pdf (Kim et al. 2014) | (none opened) | one source |
+
 ## Data stories and motion (P)
 
 | id | claim | source 1 | source 2 | status |
@@ -50,3 +54,5 @@ Gathered 2026-11-18 by researcher agents, each source opened on the web. Every c
 - The BBC caption figures come from a vendor summary; the BBC pages did not load.
 - The full papers of Segel and Heer, and of Heer and Robertson, were checked from abstracts and landing pages only.
 - L13 and L14 study lecture videos, not short explainers.
+- L15 to L17 were added on 2026-11-27, each from one opened source. No controlled study of chapter marks was found: chapters follow from L6 and L17, as a house rule.
+- L16 studies language learners. The `line` caption keeps its lesson: the highlight is a color change only, with no motion.

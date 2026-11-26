@@ -10,7 +10,7 @@ Four steps, two stops: **1 Intent** (stop: the user approves `intent.md`), **2 P
 
 Each new video is a project, `projects/<YYYYMMDD>-<name>/`, made first; every file of its work stays inside it. Videos made before projects stay in `generated_videos/<slug>/` (no intent step); use the slug as it is.
 
-Defaults: `landscape` (`story` if the user says IG, reel, story, phone, or TikTok), length 1-3 min (under 1 min for a story), one video with no parts, moodboard and video format recommended, voice `af_heart`, captions `pop`, 3D allowed where it explains better, viewer a smart colleague new to the topic.
+Defaults: `landscape` (`story` if the user says IG, reel, story, phone, or TikTok), length 1-3 min (under 1 min for a story), one video with no parts, moodboard and video format recommended, voice `af_heart`, captions `line`, 3D allowed where it explains better, viewer a smart colleague new to the topic.
 
 **Sub-agents, for speed.** At most 5 per step, all spawned in one message so they run in parallel; more items than 5 means 2 per agent. Sub-agents start blank, so paste in each one: the objective, input file paths, the rules it needs, its output shape, and a status of `DONE`, `DONE_WITH_CONCERNS`, or `BLOCKED` plus the reason, and a line `Issues:` with the problems it met (a refused command, a missing fact, a slow step), or `none`. Sub-agents never run `make approve`, `make narrate`, `make preview`, `make video`, `make new`, or `make from-html`, and never edit `intent.md`, `issues.md`, `script.yaml`, `style.css`, or `approved.json`. They use Read, Glob, and Grep to read files, not shell commands such as `cat`, `ls`, `sed`, or `python3`: a dashboard job refuses those. The main agent keeps those. Without sub-agents, do the same work yourself.
 
@@ -28,6 +28,7 @@ Defaults: `landscape` (`story` if the user says IG, reel, story, phone, or TikTo
    - [ ] each frame shows what its `show:` says
    - [ ] zero frames look broken, empty, or cramped
    - [ ] the story follows the intent's acts, not a source's order
+   - [ ] the skim test passes: the scene titles and the contact sheets alone give the key message (`docs/writing.md`, "Skim")
    Summary: the 720p MP4 paths, the contact sheets, any unticked box, and the `VERDICT 1080p:` line. Then ask for the preview approval: it approves the final video, the script, and the voice.
 4. **Optional: 1080p.** After the approval, give the verdict from the `VERDICT 1080p:` line (also in `make status`) and ask the user: "Render 1080p? Verdict: <verdict>." Recommend no when it says "not needed"; recommend yes only when it says "worth it for big screens" and the video goes to a projector, a TV, or a public upload. Run `make video SLUG=<id> FORMAT=<f>` only on a yes. In a dashboard job (the request says "Dashboard job"), stop after the preview check: the page offers 1080p with the verdict. Summary: each MP4 path and length, plus the share check: zero customer data, zero secrets, audience internal or public.
 

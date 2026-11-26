@@ -45,6 +45,17 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 4. **Concrete and capped.** Real numbers ("from 1.2 s to 300 ms"), not "much faster". Five items or fewer in any list on screen.
 5. **End with the win and one next action.** No "thanks for watching".
 
+## Skim: a viewer who scrubs still gets the point
+
+Many viewers do not watch from start to end: they scrub, watch with the sound off, or look at one frame. Research: [L15 to L17](research/visual-patterns.md).
+
+1. **Answer first.** The first beat states the key message itself. "Checkout fails for two percent of users, and one timeout causes it", not "In one minute, you will know why checkout fails".
+2. **A title per scene.** Give each scene a `title:` in `script.yaml`: its point as a short sentence, 8 words or fewer. "One timeout causes the failures", not "Root cause". Show the same words on screen in that scene.
+3. **Chapters.** Each scene is a chapter mark in the MP4, named by its `title:`, so a viewer can jump. `out/<name>.chapters.txt` lists them as `0:00 Title` lines for a video description.
+4. **The last frame is the takeaway.** It reads alone as a screenshot: the key message and one next action.
+5. **Captions as a subtitle.** `captions: line` (the default) shows the whole sentence in 1 or 2 lines, and the said word lights up. A viewer with the sound off reads at their own speed. `captions: pop` shows one word at a time, which fits a short story clip and costs more eye movement.
+6. **The skim test.** Read only the scene titles and the contact sheets. They must give the key message and the reasons. If they do not, fix the titles and the pictures, not the narration.
+
 ## Write for the voice
 
 - Spell out what the voice reads: "two percent", "x squared", "version three point two".
