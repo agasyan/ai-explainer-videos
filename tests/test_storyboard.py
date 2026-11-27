@@ -76,6 +76,13 @@ class StoryboardTest(unittest.TestCase):
         checks = self.board(s)["checks"]
         self.assertEqual(2, sum(c.startswith("brief.questions:") for c in checks))
 
+    def test_the_research_line_counts_conflicts(self):
+        rows = [{"id": "c1", "claim": "A", "links": [], "files": ["sources/page.md"], "status": "one source"},
+                {"id": "c2", "claim": "B", "links": [], "files": ["sources/page.md", "src/a.py"], "status": "conflict"}]
+        s = spec()
+        board = storyboard.build(s, NARRATION, catalog.moodboard(s["moodboard"]), KNOWN, rows)
+        self.assertIn("Research: 2 claims, 1 with one source, 0 with none, 1 in conflict (research.md).", storyboard.markdown(board))
+
     def test_markdown_opens_with_the_header_and_escapes_pipes(self):
         text = storyboard.markdown(self.board())
         self.assertEqual("Generated from script.yaml; edit that file.", text.splitlines()[2])

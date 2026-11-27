@@ -1111,7 +1111,8 @@ class Handler(BaseHTTPRequestHandler):
                 prompt += (f" The requester's brief is in projects/{slug}/sources/brief.md: who watches, why the video "
                            f"exists, and what to cover. Build the intent from it first.")
             prompt += (" Web research: on." if web else
-                       " Web research: off: use only the sources, and write no research.md.")
+                       " Web research: off: use no web search. Check the claims against the sources given, and write "
+                       "research.md from them.")
             prompt += f" Start with {first_step}: the project folder holds all of this video's work."
             prompt += f" Slug: {slug}.{DASHBOARD_JOB}"
             return self.send_json({"id": start_job(prompt, read_dir=dirs, slug=slug, web=web, model=model, effort=effort,

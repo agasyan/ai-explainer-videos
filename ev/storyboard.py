@@ -126,7 +126,8 @@ def build(spec, narration, mood=None, known=None, research_rows=(), frames=None)
             "picks": chosen, "direction": direction, "parts": parts,
             "research": {"rows": research, "claims": len(research),
                          "one_source": sum(r["status"] == "one source" for r in research),
-                         "no_source": sum(r["status"] == "no source" for r in research)},
+                         "no_source": sum(r["status"] == "no source" for r in research),
+                         "conflict": sum(r["status"] == "conflict" for r in research)},
             "checks": issues}
 
 
@@ -162,7 +163,7 @@ def markdown(data):
     r = data["research"]
     if r["claims"]:
         out += [f"Research: {r['claims']} claim{'' if r['claims'] == 1 else 's'}, {r['one_source']} with one source, "
-                f"{r['no_source']} with none (research.md).", ""]
+                f"{r['no_source']} with none, {r.get('conflict', 0)} in conflict (research.md).", ""]
     for part in data["parts"]:
         out += [f"## Part {part['n']}: {cell(part['title'])} ({part['length']:.0f} s)", "",
                 "| # | Time | Voice | On screen | Treatment | 2D or 3D | Sources | Frame |",

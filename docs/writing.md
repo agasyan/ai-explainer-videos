@@ -13,19 +13,20 @@ One beat is one visual change. The preview check compares each frame with its `s
 
 ## Research: every fact has a source
 
-For a topic, the agent writes `research.md` before the script: one table, one row per claim.
+For every video that states a fact, the agent writes `research.md` before the script: one table, one row per claim. A page, a doc, or a recording is a claim, not a proof: the agent checks what it says against the other sources (a folder, a repo, a PR), and against the web when web research is on.
 
 | id | claim | source 1 | source 2 | status |
 |----|-------|----------|----------|--------|
 | c1 | 18 June 1914: Lawrence Sperry flew hands-off near Paris | [NASM](https://airandspace.si.edu/air-and-space-quarterly/issue-12/secret-history-of-drones) | [FAA](https://www.esc.gov/monroneynews/archive/Vol_5/TG/05_3.asp) | two sources |
 
 1. Open every source you cite. Take each number and date from the page, never from memory.
-2. A claim is checked when two independent sources agree; with one, its status is `one source`.
+2. A claim is checked when two independent sources agree; with one, its status is `one source`. A source is a web link, or a file in backticks with its lines: `` `src/rank.py:L40-L52` ``, or `` page s03 (`sources/page.md`) ``. Two files made from one page are one source.
 3. Each beat that states a fact lists its claims: `sources: [c1]`.
-4. `make narrate` prints `CHECK` for a beat that cites an unknown claim, or states a number with no source.
+4. `make narrate` prints `CHECK` for a beat that cites an unknown claim, or states a number with no source. With no `research.md`, it prints one `CHECK` when any beat states a number.
 5. Approving the preview (or an early plan check) approves `research.md`: the plan hash covers it.
 6. A page that does not load is not a source. Write `not opened` and the reason in its cell: `https://... (not opened: 403)`. The link then does not count.
-7. Say a number from a claim with one source as an estimate: "about", or "one study found". Keep a plain statement for a claim with two sources.
+7. When two sources disagree, write `conflict: <how they differ>` in the status. The intent lists each conflict, and the user settles it. A beat cannot state a claim in conflict.
+8. Say a number from a claim with one source as an estimate: "about", or "one study found". Keep a plain statement for a claim with two sources.
 
 ## Narration: about 80% of the way to ASD-STE100
 

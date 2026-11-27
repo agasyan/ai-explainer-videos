@@ -201,7 +201,8 @@ def sections(video, fmt=None):
     for e in first.get("errors", []):
         print(f"  NOTE page JS error: {e[:160]}")
     print("\n".join(f"  wrote {x}" for x in drafted))
-    print(f"Next (step 1): read sources/page.md, fill in intent.md, then make approve SLUG={video.name} STEP=intent")
+    print(f"Next (step 1): read sources/page.md and every other source, check the page's claims against them into "
+          f"research.md, fill in intent.md, then make approve SLUG={video.name} STEP=intent")
 
 
 # ---------- the draft ----------
