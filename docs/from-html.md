@@ -43,7 +43,8 @@ make narrate -> make preview -> your check
 
 ## Retell it
 
-- Read `sources/page.md`; open `assets/page/index.html` for detail. State only what the page says, unless web research is on.
+- Read `sources/page.md`; open `assets/page/index.html` for detail.
+- The page is a claim, not a proof. Check each claim the video states against the other sources (a folder, a repo, a PR), and against the web when web research is on, and write the rows to `research.md` ([writing.md](writing.md#research-every-fact-has-a-source)). With no other source, every row is `one source`, and the intent says so.
 - Fill in `intent.md`: the key message, the viewers, the story in a video format's acts, the look, what to keep and cut, and the evidence to show. Then ask for the intent check.
 - Tell it in the acts, not in the page's order. A decision: the verdict, the options side by side, the evidence for each criterion, the verdict again and the ask ([visual-patterns.md](visual-patterns.md)).
 - Evidence: use a `scenes/page-<id>.html` scene (scene id `page-<id>`, `treatment: page`) only where a beat names a table, chart, or code block. Zoom into it with `p.zoom`, and mark it with `p.mark` ([scenes.md](scenes.md#page-sections)).

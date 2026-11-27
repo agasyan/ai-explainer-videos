@@ -4,7 +4,7 @@ Two stops. The **intent** comes first: what the video says, to whom, and how, be
 
 | Step | The agent makes | You check | Approve with |
 |------|-----------------|-----------|--------------|
-| 1 Intent | `intent.md`: the key message, the viewers, the sources and their roles, the story, the look, what to keep and cut, the evidence, research questions | Right message for the right viewers? Right story and look? Anything to cut or add? | `make approve SLUG=<id> STEP=intent` |
+| 1 Intent | `intent.md`: the key message, the viewers, the sources and their roles, the story, the look, what to keep and cut, the evidence, the claims check (how many claims have two sources, and each conflict), research questions | Right message for the right viewers? Right story and look? Anything to cut or add? | `make approve SLUG=<id> STEP=intent` |
 | 2 Plan | `research.md`, `script.yaml` (per beat: `say` and `show`), the voice, `storyboard.md` | Nothing now: you check it with the preview | (with the preview) |
 | 3 Preview | `scenes/*.html`, a 720p MP4, contact sheets, and the 1080p verdict | The script and the voice in the video? Each frame matches its `show`? Nothing broken? Zero customer data or secrets? Right audience? | `make approve SLUG=<id> STEP=preview` |
 | 4 1080p (optional) | The 1080p MP4 and SRT, only when you say yes | Watch it once | (no check) |
@@ -38,7 +38,7 @@ Each full 720p render ends with a `VERDICT 1080p:` line, also in `make status`, 
 
 ## What an approval covers
 
-- The intent check covers `intent.md`. The preview approval also approves the plan (`script.yaml` and, for a topic, `research.md`), so it approves the facts.
+- The intent check covers `intent.md`. The preview approval also approves the plan (`script.yaml` and `research.md`), so it approves the facts.
 - `approved.json` in the video's folder (`projects/<id>/`, or `generated_videos/<slug>/` for an older video) stores a hash of what you approved, the time (UTC), and your user name. It stays on your machine with the video.
 - **Plan** covers `script.yaml`, except each beat's `hold` and the top-level `format`, `look`, `moodboard`, `three`, `captions`, and `engine` lines. Those are timing, look, and rendering, which the preview check covers. The `video_format` line is in the plan: it sets the structure.
 - **Preview** covers `script.yaml`, `style.css`, `scenes/`, and `assets/`, plus the formats you previewed. For a video with a `moodboard:` line, it also covers that moodboard's file, so a change to the moodboard asks for a new preview check.

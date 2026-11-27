@@ -39,4 +39,4 @@ come after it, and you check them with the 720p preview. Edit any line.
 
 ## Research
 
-(fill in, or write "none") facts to look up before the script, each as a question
+(fill in) the claims the video states, checked in `research.md`: how many have two sources, how many only one source says, and each conflict between sources with both values, for you to settle here. Then the facts still to look up, each as a question. Write "none" only for a video that states no fact.

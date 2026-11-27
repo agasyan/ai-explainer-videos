@@ -34,7 +34,7 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual("one source", row["status"])
 
     def test_summary_counts_sources(self):
-        self.assertEqual({"claims": 3, "one_source": 1, "no_source": 1}, research.summary(self.path))
+        self.assertEqual({"claims": 3, "one_source": 1, "no_source": 1, "conflict": 0}, research.summary(self.path))
 
     def test_unknown_source_id(self):
         issues = research.checks(spec({"id": "b1", "say": "Hello.", "sources": ["c9"]}), self.path)
@@ -51,5 +51,26 @@ class ResearchTest(unittest.TestCase):
         self.assertEqual([], research.checks(spec({"id": "b1", "say": "In 1914 he flew.", "sources": ["c1"]},
                                                   {"id": "b2", "say": "If one zone fails, search stops."}), self.path))
 
-    def test_no_research_file_means_no_checks(self):
-        self.assertEqual([], research.checks(spec({"id": "b1", "say": "In 1914."}), Path(self.tmp.name) / "none.md"))
+    def test_a_number_with_no_research_file_is_one_check(self):
+        missing = Path(self.tmp.name) / "none.md"
+        issues = research.checks(spec({"id": "b1", "say": "In 1914."}, {"id": "b2", "say": "Up nineteen percent."}), missing)
+        self.assertEqual(1, len(issues))
+        self.assertTrue(issues[0].startswith("research.md is missing, and 2 beats state a number (hook/b1, hook/b2)"))
+        self.assertEqual([], research.checks(spec({"id": "b1", "say": "Hello there."}), missing))
+
+    def test_a_project_file_counts_as_a_source(self):
+        self.path.write_text(TABLE
+                             + "| c4 | Each refresh brings only new fares | page s05 (`sources/page.md`) | `src/poll/Search.java:L40-L52` | |\n"
+                             + "| c5 | The cost is 16K a month | page s03 (`sources/page.md`) | - | one source (the page) |\n"
+                             + "| c6 | Same page twice | `sources/page.md` | `sources/page.md:L9` | |\n")
+        c4, c5, c6 = research.rows(self.path)[-3:]
+        self.assertEqual(("two sources", ["sources/page.md", "src/poll/Search.java"]), (c4["status"], c4["files"]))
+        self.assertEqual("one source", c5["status"])
+        self.assertEqual("one source", c6["status"])  # one file named twice is one source
+
+    def test_a_conflict_blocks_the_beat_that_cites_it(self):
+        self.path.write_text(TABLE + "| c4 | 16K a month | `sources/page.md` | `cost/model.py:L12` | conflict: the code says 12K |\n")
+        self.assertEqual("conflict", research.rows(self.path)[-1]["status"])
+        self.assertEqual(1, research.summary(self.path)["conflict"])
+        issues = research.checks(spec({"id": "b1", "say": "It costs 16 thousand.", "sources": ["c4"]}), self.path)
+        self.assertEqual(["hook/b1 cites c4, where the sources disagree: settle it with the user, or leave it out"], issues)

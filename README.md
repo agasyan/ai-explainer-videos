@@ -29,7 +29,7 @@ Each video is a project folder, `projects/<YYYYMMDD>-<name>/`, made when the wor
 | Step | The agent | You |
 |------|-----------|-----|
 | 1 Intent | Reads every source into the project, guesses the viewers, picks a video format and a look, and writes `intent.md`: the key message, the story, what to keep and cut. | Read one page, approve or ask for changes. |
-| 2 Plan | Researches the facts with sources (when web research is on), writes the script, and makes the voice. | Nothing: no stop. |
+| 2 Plan | Checks the facts against the sources (and the web, when web research is on), writes the script, and makes the voice. | Nothing: no stop. |
 | 3 Preview | Draws each scene with the [visual patterns](docs/visual-patterns.md), checks one frame per beat, renders 720p, fixes up to 2 passes. | Watch the 720p video, with its script and voice, and approve. That video is the final. |
 | 4 1080p (optional) | Says if 1080p is worth it: "not needed" for drawn scenes, "worth it for big screens" for page captures and screenshots. | Say yes only for a projector, a TV, or a public upload. |
 

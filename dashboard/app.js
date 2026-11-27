@@ -164,9 +164,10 @@ function storyboardView(v) {
   }
   const rs = b.research;
   if (rs.claims) {
-    out.push(fold(`Research: ${rs.claims} claim${rs.claims === 1 ? "" : "s"}, ${rs.one_source} with one source${rs.no_source ? `, ${rs.no_source} with none` : ""}`, false,
+    out.push(fold(`Research: ${rs.claims} claim${rs.claims === 1 ? "" : "s"}, ${rs.one_source} with one source${rs.no_source ? `, ${rs.no_source} with none` : ""}${rs.conflict ? `, ${rs.conflict} in conflict` : ""}`, false,
       table(["id", "Claim", "Sources", "Status"], rs.rows.map(r => [r.id, r.claim,
-        el("span", {}, r.links.flatMap((u, i) => [...(i ? [text(" · ")] : []), link(`source ${i + 1}`, u)])), r.status]))));
+        el("span", {}, [...r.links.map((u, i) => link(`source ${i + 1}`, u)), ...(r.files || []).map(f => text(f))]  // a file is text, never a link
+          .flatMap((node, i) => [...(i ? [text(" · ")] : []), node])), r.status]))));
   }
   return out;
 }
@@ -656,7 +657,7 @@ function sourcesChanged(note = "") {
     remove.setAttribute("aria-label", `Remove source ${i + 1}`);
   });
   const list = sources();
-  if (!webEdited) $("web").checked = !list.some(x => x.kind === "html");  // a page is its own source; a topic needs research
+  if (!webEdited) $("web").checked = !list.some(x => x.kind === "html");  // a page is checked against the other sources first; a topic needs the web
   $("sources-note").textContent = note || (list.filter(x => x.kind === "html").length > 1 ? "One HTML page per video: keep one." : "");
 }
 const sources = () => [...$("sources").children].map(row => {
@@ -724,7 +725,7 @@ function request(forTerminal) {
     `Voice: ${radio("voice")}. Length: ${radio("length")}, one video, no parts. ` +
     (forTerminal && brief ? `The requester's brief (who watches, why, what to cover), in their words: <<<${brief}>>> ` : "") +
     (forTerminal ? ($("name-mode").value === "manual" && $("slug").value.trim() ? `Name: ${$("slug").value.trim()}. ` : "") +
-      ($("web").checked ? "Web research: on. " : "Web research: off: use only the sources, and write no research.md. ") : "") +
+      ($("web").checked ? "Web research: on. " : "Web research: off: use no web search. Check the claims against the sources given, and write research.md from them. ") : "") +
     "Use defaults for anything else.";
 }
 
