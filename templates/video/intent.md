@@ -12,6 +12,10 @@ come after it, and you check them with the 720p preview. Edit any line.
 
 (fill in) who watches, and what they know already: from the brief (sources/brief.md) if there is one, else Claude's guess from the sources
 
+## Viewer questions
+
+(fill in) up to 3 questions these viewers ask, in their words, each with the answer in 1 to 4 words. The video answers each one, and the first beat answers the first.
+
 ## Sources
 
 (fill in) each source: kind, role, and what it gives the video

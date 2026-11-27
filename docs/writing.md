@@ -24,6 +24,8 @@ For a topic, the agent writes `research.md` before the script: one table, one ro
 3. Each beat that states a fact lists its claims: `sources: [c1]`.
 4. `make narrate` prints `CHECK` for a beat that cites an unknown claim, or states a number with no source.
 5. Approving the preview (or an early plan check) approves `research.md`: the plan hash covers it.
+6. A page that does not load is not a source. Write `not opened` and the reason in its cell: `https://... (not opened: 403)`. The link then does not count.
+7. Say a number from a claim with one source as an estimate: "about", or "one study found". Keep a plain statement for a claim with two sources.
 
 ## Narration: about 80% of the way to ASD-STE100
 
@@ -49,12 +51,15 @@ Adapted from [i-have-adhd](https://github.com/ayghri/i-have-adhd) for video.
 
 Many viewers do not watch from start to end: they scrub, watch with the sound off, or look at one frame. Research: [L15 to L17](research/visual-patterns.md).
 
-1. **Answer first.** The first beat states the key message itself. "Checkout fails for two percent of users, and one timeout causes it", not "In one minute, you will know why checkout fails".
-2. **A title per scene.** Give each scene a `title:` in `script.yaml`: its point as a short sentence, 8 words or fewer. "One timeout causes the failures", not "Root cause". Show the same words on screen in that scene.
-3. **Chapters.** Each scene is a chapter mark in the MP4, named by its `title:`, so a viewer can jump. `out/<name>.chapters.txt` lists them as `0:00 Title` lines for a video description.
-4. **The last frame is the takeaway.** It reads alone as a screenshot: the key message and one next action.
-5. **Captions as a subtitle.** `captions: line` (the default) shows the whole sentence in 1 or 2 lines, and the said word lights up. A viewer with the sound off reads at their own speed. `captions: pop` shows one word at a time, which fits a short story clip and costs more eye movement.
-6. **The skim test.** Read only the scene titles and the contact sheets. They must give the key message and the reasons. If they do not, fix the titles and the pictures, not the narration.
+1. **Start from the viewer's questions.** `intent.md` lists up to 3 questions these viewers ask, each with its answer in 1 to 4 words, and `brief.questions` in `script.yaml` carries them. The video answers each one; the first beat answers the first.
+2. **Answer first.** The first beat states the key message itself. "Checkout fails for two percent of users, and one timeout causes it", not "In one minute, you will know why checkout fails".
+3. **A title per scene.** Give each scene a `title:` in `script.yaml`: its point as a short sentence, 8 words or fewer. "One timeout causes the failures", not "Root cause". Show the same words on screen in that scene.
+4. **Chapters.** Each scene is a chapter mark in the MP4, named by its `title:`, so a viewer can jump. `out/<name>.chapters.txt` lists them as `0:00 Title` lines for a video description.
+5. **Show what a person sees, then the system.** When the topic changes what a user or an operator sees, the scene after the hook shows that as one example. The parts and the mechanism come after it.
+6. **The last frame is the takeaway.** It reads alone as a screenshot: the key message and one next action.
+7. **Captions as a subtitle.** `captions: line` (the default) shows the whole sentence in 1 or 2 lines, and the said word lights up. A viewer with the sound off reads at their own speed. `captions: pop` shows one word at a time, which fits a short story clip and costs more eye movement.
+8. **The skim test.** Read only the Skim part at the top of `storyboard.md` (the key message, the questions, the scene titles), then the contact sheets. They must give the key message and the reasons. If they do not, fix the titles and the pictures, not the narration.
+9. **A fresh viewer checks it.** Before the preview approval, one reviewer gets only the contact sheets and the subtitle file, with the questions but not their answers. It states the key message and answers each question. A wrong or missing answer is a finding to fix.
 
 ## Write for the voice
 

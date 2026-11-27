@@ -16,7 +16,7 @@ FLAT_PAGE = "<script>EV.ready();</script>"
 
 
 def spec(three=True, why=True, n=1):
-    scenes = [{"id": f"s{i}", "treatment": "stage-3d", "beats": [{"id": "b", "say": "Hi.", "show": "x"}],
+    scenes = [{"id": f"s{i}", "title": f"Scene {i}", "treatment": "stage-3d", "beats": [{"id": "b", "say": "Hi.", "show": "x"}],
                **({"three_why": "rotation is the idea"} if why else {})} for i in range(n)]
     return {"three": three, "moodboard": "instrument", "parts": [{"title": "One", "scenes": scenes}]}
 

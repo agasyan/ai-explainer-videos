@@ -636,7 +636,7 @@ def stamp(t, sep=","):
 
 def chapter_title(scene):
     """A scene's chapter name: its `title:` from script.yaml, or its id in words (hook-plan becomes "Hook plan")."""
-    return " ".join(str(scene.get("title") or "").split()) or str(scene["id"]).replace("-", " ").capitalize()
+    return storyboard.scene_title(scene)
 
 
 def chapter_meta(chapters, length):

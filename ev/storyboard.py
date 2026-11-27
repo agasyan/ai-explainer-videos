@@ -1,6 +1,7 @@
 """storyboard.md: the plan as one document, made from script.yaml and the narration. Never edit it by hand.
 
-It opens with the picks (a recommended video format and moodboard, each with 2 alternatives and a reason), then the
+It opens with the skim (the key message, the viewer's questions with their answers, and the scene titles in
+order), then the picks (a recommended video format and moodboard, each with 2 alternatives and a reason), then the
 video direction (the moodboard's color, type, and motion roles), then one table per part: one row per beat, with its
 time, voice, picture, treatment, 2D or 3D, sources, and frame. `make narrate` writes it, and a full 720p render adds
 the frames. The dashboard reads the same data from build/storyboard.json and shows it as text, never as HTML.
@@ -18,6 +19,20 @@ ROLES = (("accent", "main idea"), ("accent-2", "second idea"), ("good", "right, 
 def stamp(t):
     """Seconds as mm:ss.d, for example 00:07.5."""
     return f"{int(t // 60):02d}:{t % 60:04.1f}"
+
+
+def scene_title(scene):
+    """A scene's title: its `title:` line, or its id in words (hook-plan becomes "Hook plan")."""
+    return " ".join(str(scene.get("title") or "").split()) or str(scene["id"]).replace("-", " ").capitalize()
+
+
+def questions(brief):
+    """[{"q", "a"}] from brief.questions: what the viewer asks, each with the short answer the video gives."""
+    out = []
+    for item in brief.get("questions") or []:
+        q, a = (item.get("q"), item.get("a")) if isinstance(item, dict) else (item, "")
+        out.append({"q": " ".join(str(q or "").split()), "a": " ".join(str(a or "").split())})
+    return out
 
 
 def cell(text):
@@ -57,9 +72,19 @@ def build(spec, narration, mood=None, known=None, research_rows=(), frames=None)
     treatments = list((mood or {}).get("treatments") or [])
     brief = spec.get("brief") or {}
     parts = []
+    asked = questions(brief)
+    issues += [f"brief.questions: {x['q'] or 'an entry'} needs q and a: the question, and its answer in 1 to 4 words"
+               for x in asked if not (x["q"] and x["a"])]
+    many = sum(len(part["scenes"]) for part in spec["parts"]) > 1  # one scene needs no title: it has no chapter mark
     for n, part in enumerate(spec["parts"], 1):
-        t, rows, three = 0.0, [], 0
+        t, rows, three, outline = 0.0, [], 0, []
         for scene in part["scenes"]:
+            title = " ".join(str(scene.get("title") or "").split())
+            if many and not title:
+                issues.append(f"{scene['id']}: add title: the scene's point in 8 words or fewer (it names the chapter mark)")
+            elif len(title.split()) > 8:
+                issues.append(f"{scene['id']}: title has {len(title.split())} words: use 8 or fewer")
+            outline.append({"scene": scene["id"], "title": scene_title(scene), "time": stamp(t)})
             treatment = str(scene.get("treatment") or "")
             if mood and not treatment:
                 issues.append(f"{scene['id']}: add treatment: one of {', '.join(treatments)} (moodboard {mood['name']})")
@@ -82,7 +107,8 @@ def build(spec, narration, mood=None, known=None, research_rows=(), frames=None)
                 t += clip["duration"] + narration["gap"] + float(beat.get("hold", 0))
         if three > 2:
             issues.append(f"Part {n}: 3D in {three} scenes: keep 3D for spatial ideas, 2 per part at most")
-        parts.append({"n": n, "title": str(part.get("title", "")), "length": round(t, 1), "rows": rows})
+        parts.append({"n": n, "title": str(part.get("title", "")), "length": round(t, 1), "rows": rows,
+                      "outline": outline})
     direction = None
     if mood:
         c, ty, m = mood["colors"], mood["typography"], mood["motion"]
@@ -96,6 +122,7 @@ def build(spec, narration, mood=None, known=None, research_rows=(), frames=None)
     return {"source": narration.get("source"), "title": str(spec.get("title", "")),
             "reading": (f"Reading this as: {cell(brief['takeaway']).rstrip('. ')}. "
                         f"For: {cell(brief.get('viewer', '')).rstrip('. ')}." if brief.get("takeaway") else ""),
+            "skim": {"message": cell(brief.get("takeaway", "")), "questions": asked},
             "picks": chosen, "direction": direction, "parts": parts,
             "research": {"rows": research, "claims": len(research),
                          "one_source": sum(r["status"] == "one source" for r in research),
@@ -107,6 +134,15 @@ def markdown(data):
     out = [f"# {cell(data['title'])}: storyboard", "", HEADER, ""]
     if data["reading"]:
         out += [data["reading"], ""]
+    skim = data.get("skim") or {}
+    if skim.get("message") or any(len(p.get("outline", [])) > 1 for p in data["parts"]):
+        out += ["## Skim", "", "Read only this part. It must give the key message and the reasons (docs/writing.md, Skim).", ""]
+        out += [f"- Key message: {skim['message']}"] if skim.get("message") else []
+        out += [f"- Viewers ask: {cell(x['q'])} Answer: {cell(x['a'])}" for x in skim.get("questions", [])]
+        for part in data["parts"]:
+            out += ["", f"Part {part['n']}: {cell(part['title'])}"] if len(data["parts"]) > 1 else [""]
+            out += [f"{i}. {s['time'][:5]} {cell(s['title'])}" for i, s in enumerate(part.get("outline", []), 1)]
+        out.append("")
     if data["picks"]:
         out += ["## Picks", ""]
         for key, label in CATALOGS:

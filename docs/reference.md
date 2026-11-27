@@ -35,7 +35,7 @@ Options for `stills`, `preview`, and `video`: `FORMAT=landscape|story|both` (def
 | Field | Meaning | Default |
 |-------|---------|---------|
 | `title` | Video title | the slug |
-| `brief` | `viewer`, `takeaway`, `points`, `example`, `sources`, `guesses` | `(fill in)` |
+| `brief` | `viewer`, `takeaway`, `questions` (up to 3 of `{q, a}`: what the viewer asks, and the answer in 1 to 4 words), `points`, `example`, `sources`, `guesses` | `(fill in)` |
 | `format` | `landscape`, `story`, or `both` | `landscape` |
 | `moodboard` | A folder in `moodboards/` ([scenes.md](scenes.md#moodboards)), or `recommend` until the plan picks one | `recommend` |
 | `video_format` | A folder in `video-formats/`: the acts and the beat range of each, or `recommend` | `recommend` |
@@ -49,7 +49,7 @@ Options for `stills`, `preview`, and `video`: `FORMAT=landscape|story|both` (def
 | `engine` | `playwright`, or `hyperframes` for parallel capture and `<video>` clips ([how-it-works.md](how-it-works.md#engines)) | `playwright` |
 | `scenes` | List of scenes; or use `parts`, each with a `title` and `scenes` | |
 | scene `id` | Lowercase letters, digits, dashes; names `scenes/<id>.html` | |
-| scene `title` | The scene's point in 8 words or fewer. It names the scene's chapter mark in the MP4 and its line in `out/<name>.chapters.txt` | the scene `id` in words |
+| scene `title` | The scene's point in 8 words or fewer. It names the scene's chapter mark in the MP4, its line in `out/<name>.chapters.txt`, and its line in the storyboard's skim. `make narrate` prints a `CHECK` for a scene without one, in a video of 2 scenes or more | the scene `id` in words |
 | scene `treatment` | One of the moodboard's `treatments`, for example `title`, `flow`, `timeline`; or `page` for a captured page section ([from-html.md](from-html.md)) | |
 | scene `three_why` | One line: why 3D explains this scene better than 2D. Needed for a scene that loads three.js | |
 | beat `id`, `say`, `show` | Beat name (lowercase letters, digits, dashes; names its frame), narration (`*key words*` in asterisks get the caption key color), storyboard | |
@@ -72,7 +72,7 @@ A video's folder is `projects/<YYYYMMDD>-<name>/`, or `generated_videos/<slug>/`
 | `approved.json` | Approvals | yes |
 | `research.md` | Topics only: each claim with its sources ([writing.md](writing.md#research-every-fact-has-a-source)) | yes |
 | `sources/` | What the agent read: notes and copies (`files/`, `recordings/` with transcripts, `page.md` for an HTML page), and `index.md` with where each came from (path, repo and commit, or URL) | yes |
-| `storyboard.md` | Made by `make narrate` from `script.yaml`: picks, video direction, one row per beat. Never edit it | no |
+| `storyboard.md` | Made by `make narrate` from `script.yaml`: the skim (key message, viewer questions, scene titles in order), picks, video direction, one row per beat. Never edit it | no |
 | `frames/<format>/<scene>/<beat>.jpg` | One frame per beat from the last full 720p render, shown in `storyboard.md` | no |
 | `build/narration.wav` | All beats in a row | no |
 | `build/sections.json` | From `make from-html`: each section's heading, text, size, and parts (tables, charts, code) | no |

@@ -2,6 +2,8 @@ title: __TITLE__
 brief:                    # step 1: replace every (fill in)
   viewer: (fill in) who watches, and what they know already
   takeaway: (fill in) one sentence the viewer remembers
+  questions:              # up to 3 questions the viewer asks; `a` is the answer in 1 to 4 words (storyboard.md, Skim)
+    - {q: (fill in) a question, a: (fill in) its short answer}
   points:
     - (fill in) 3 to 5 points, in order
   example: (fill in) one concrete example

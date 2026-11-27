@@ -37,12 +37,14 @@ parts:
   - title: From gyro to autoland
     scenes:
       - id: opening
+        title: "Pilots still train to fly by hand"
         treatment: title
         beats:
           - id: payoff
             say: Pilots still train to *fly by hand*, even with an autopilot. Engineers need their basics with A I for the same reason.
             show: "Title in a thin box: AUTOPILOT, PILOTS, ENGINEERS. A mono status line below: PART 1/3 · FROM GYRO TO AUTOLAND."
       - id: sperry
+        title: "1914: the first autopilot flies hands-off"
         treatment: stage-3d
         three_why: Stability is a rotation; a 3D wireframe plane shows the wings stay level while weight moves out on one wing
         beats:
@@ -55,6 +57,7 @@ parts:
             show: "A small marker moves out along one wing. The plane rolls a few degrees, then the wings return level. Label: GYRO STABILIZER."
             sources: [c1, c3]
       - id: milestones
+        title: "Automation grows to 90% of a flight"
         treatment: timeline
         beats:
           - id: post
@@ -81,6 +84,7 @@ parts:
   - title: Why pilots still train
     scenes:
       - id: af447
+        title: "Air France 447: the autopilot disconnects"
         treatment: stage-3d
         three_why: A stall is about where the nose points against where the plane goes; 3D shows the nose up while the flight path falls
         beats:
@@ -104,6 +108,7 @@ parts:
             show: "The 3D view fades. A boxed readout: 228 ON BOARD. A line below: GAP · HAND FLYING TRAINING."
             sources: [c20, c23]
       - id: irony
+        title: "Automation leaves people the hardest moments"
         treatment: compare
         beats:
           - id: named
@@ -119,6 +124,7 @@ parts:
             show: "A boxed readout HAND SKILL slides down its tape from high to low."
             sources: [c24]
       - id: fix
+        title: "The fix: more hand flying and simulators"
         treatment: flow
         beats:
           - id: guidance
@@ -137,6 +143,7 @@ parts:
   - title: The same lesson for code
     scenes:
       - id: shift
+        title: "With AI, the job shifts to checking code"
         treatment: compare
         beats:
           - id: context
@@ -152,6 +159,7 @@ parts:
             show: "A code card with a green-looking line and one amber tag: LOOKS RIGHT. The tag turns red: WRONG."
             sources: [c48]
       - id: evidence
+        title: "Studies: lower quiz scores, less secure code"
         treatment: big-number
         beats:
           - id: quiz
@@ -167,6 +175,7 @@ parts:
             show: "Two dials side by side: SECURITY drops to amber, CONFIDENCE rises. Small source line: Stanford study."
             sources: [c37]
       - id: basics
+        title: "CS basics are your hand-flying skill"
         treatment: flow
         beats:
           - id: skills
