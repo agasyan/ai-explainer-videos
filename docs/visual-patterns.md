@@ -42,7 +42,8 @@ This fits the `compare` and `problem-fix` video formats. The first scene names t
 8. **Move the same mark.** When a value changes, move or morph the mark the viewer already sees, all at once (P10, P11).
 9. **Build in story order:** axes first, then data in the order the voice tells it, then the highlight (P13).
 10. **A new picture every few seconds.** A scene rarely holds longer than about 30 s without a new beat (an inference from L13 and L14, not a measured figure).
-11. **Captions:** 2 lines at most (L9). EV's caption widths (28 characters a line for `pop`, 42 for `line`) and the voice's pace keep them readable.
+11. **Captions:** a whole sentence in 2 lines at most (L9, L15). `line` (the default) shows the sentence, 42 characters a line, and lights up the said word in color only, with no motion (L16). `pop` shows words one at a time, 28 characters a line.
+12. **Title each scene.** Show the scene's `title:` on screen: its point in 8 words or fewer. A viewer who scrubs, and the contact sheet, then tell the story ([writing.md](writing.md#skim-a-viewer-who-scrubs-still-gets-the-point), L17).
 
 ## 3D, as an infographic
 

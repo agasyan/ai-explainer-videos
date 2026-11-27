@@ -1,4 +1,4 @@
-"""storyboard.md: picks, one row per beat, treatment checks, and the frames a full 720p render saves."""
+"""storyboard.md: the skim, picks, one row per beat, treatment and title checks, and the frames a full 720p render saves."""
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,12 +15,13 @@ PICKS = {"video_format": [{"name": "history-lesson", "why": "Then and now: the t
 
 
 def spec(**extra):
-    return {"title": "T", "brief": {"takeaway": "Train for the failure.", "viewer": "engineers"},
+    return {"title": "T", "brief": {"takeaway": "Train for the failure.", "viewer": "engineers",
+                                    "questions": [{"q": "Why train by hand?", "a": "For the failure"}]},
             "video_format": "history-lesson", "moodboard": "instrument", "picks": PICKS,
             "parts": [{"title": "One", "scenes": [
-                {"id": "hook", "treatment": "title", "beats": [{"id": "payoff", "say": "Pilots *train* hard.", "show": "A title."},
+                {"id": "hook", "title": "Pilots still train by hand", "treatment": "title", "beats": [{"id": "payoff", "say": "Pilots *train* hard.", "show": "A title."},
                                                                {"id": "then", "say": "In 1914.", "show": "A | date.", "sources": ["c1"]}]},
-                {"id": "now", "treatment": "timeline", "beats": [{"id": "now", "say": "Now.", "show": "A tape."}]}]}],
+                {"id": "now", "title": "The same rule for code", "treatment": "timeline", "beats": [{"id": "now", "say": "Now.", "show": "A tape."}]}]}],
             **extra}
 
 
@@ -47,6 +48,33 @@ class StoryboardTest(unittest.TestCase):
         self.assertEqual(["00:00.0", "00:02.5", "00:04.0"], [r["time"] for r in rows])
         self.assertEqual("Pilots train hard.", rows[0]["voice"])
         self.assertEqual(["c1"], rows[1]["sources"])
+
+    def test_the_skim_lists_the_message_the_questions_and_the_scene_titles(self):
+        text = storyboard.markdown(self.board())
+        skim = text[text.index("## Skim"):text.index("## Picks")]
+        self.assertIn("- Key message: Train for the failure.", skim)
+        self.assertIn("- Viewers ask: Why train by hand? Answer: For the failure", skim)
+        self.assertIn("1. 00:00 Pilots still train by hand\n2. 00:04 The same rule for code", skim)
+
+    def test_a_scene_needs_a_title_of_8_words_or_fewer(self):
+        s = spec()
+        del s["parts"][0]["scenes"][0]["title"]
+        s["parts"][0]["scenes"][1]["title"] = "This title runs on for far too long to read"
+        checks = self.board(s)["checks"]
+        self.assertTrue(any(c.startswith("hook: add title") for c in checks))
+        self.assertTrue(any(c.startswith("now: title has 10 words") for c in checks))
+        self.assertEqual("Hook", self.board(s)["parts"][0]["outline"][0]["title"])  # the id in words, until it has one
+
+    def test_a_video_of_one_scene_needs_no_title(self):
+        s = spec()
+        s["parts"][0]["scenes"] = [{"id": "hook", "treatment": "title", "beats": s["parts"][0]["scenes"][0]["beats"]}]
+        self.assertEqual([], self.board(s)["checks"])
+
+    def test_a_viewer_question_needs_its_answer(self):
+        s = spec()
+        s["brief"]["questions"] = [{"q": "Why train by hand?"}, "What changes for code?"]
+        checks = self.board(s)["checks"]
+        self.assertEqual(2, sum(c.startswith("brief.questions:") for c in checks))
 
     def test_markdown_opens_with_the_header_and_escapes_pipes(self):
         text = storyboard.markdown(self.board())

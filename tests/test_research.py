@@ -27,6 +27,12 @@ class ResearchTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
+    def test_a_link_that_was_not_opened_is_not_a_source(self):
+        self.path.write_text(TABLE + "| c4 | A study | [A](https://a.example/x) | https://b.example/y (not opened: 403) | |\n")
+        row = research.rows(self.path)[-1]
+        self.assertEqual(["https://a.example/x"], row["links"])
+        self.assertEqual("one source", row["status"])
+
     def test_summary_counts_sources(self):
         self.assertEqual({"claims": 3, "one_source": 1, "no_source": 1}, research.summary(self.path))
 

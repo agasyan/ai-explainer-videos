@@ -44,8 +44,8 @@ svg { overflow: visible; }
 svg * { transform-box: fill-box; transform-origin: center; }  /* SVG shapes scale and rotate around their own center */
 
 /* Captions, drawn by ev.js in the look's font and colors.
-   pop: words appear as they are said, and the current word pops. line: the whole line shows, and words light up.
-   Words in *asterisks* in `say` get the key color. */
+   line: the whole sentence shows in 1 or 2 lines, and the word the voice says takes the highlight color.
+   pop: words appear as they are said, and the current word pops. Words in *asterisks* in `say` get the key color. */
 :root { --cap-ink: #ffffff; --cap-bg: rgba(20, 20, 24, 0.82); --cap-now: #ffd84d; --cap-key: #7cc4ff; --cap-shadow: none; }
 [data-look="dark"] { --cap-bg: transparent; --cap-now: var(--accent-2); --cap-key: var(--accent);
                      --cap-shadow: 0 3px 12px rgba(0, 0, 0, 0.9); }
@@ -59,7 +59,11 @@ svg * { transform-box: fill-box; transform-origin: center; }  /* SVG shapes scal
 .ev-captions .line { display: inline-block; background: var(--cap-bg); padding: 8px 22px; border-radius: 18px; }
 .ev-captions .w { display: inline-block; margin: 0 0.14em; transform-origin: 50% 70%; }
 .ev-captions[data-style="pop"] .w { opacity: 0; }
-.ev-captions[data-style="line"] .w { opacity: 0.5; }
+.ev-captions[data-style="line"] .w { opacity: 0.8; }  /* words to come: a little dimmer, still easy to read ahead */
+/* 2 lines must stay in the band below .safe (200 px in landscape, 600 px in story). */
+.ev-captions[data-style="line"] { bottom: 40px; line-height: 1.2; }
+[data-look="whiteboard"] .ev-captions[data-style="line"] { bottom: 26px; }
+[data-format="story"] .ev-captions[data-style="line"] { bottom: 380px; }
 .ev-captions .w.on { opacity: 1; }
 .ev-captions .w.key.on { color: var(--cap-key); }
 .ev-captions .w.now { color: var(--cap-now); }

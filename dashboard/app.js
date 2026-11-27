@@ -27,8 +27,8 @@ function player(src) {
     [el("track", { kind: "captions", srclang: "en", label: "English", src: vtt })]);
   const list = el("div", { className: "transcript" });
   fetch(vtt).then(r => (r.ok ? r.text() : "")).then(text => {
-    const cues = [...text.matchAll(/(\d+):(\d+):([\d.]+) --> \S+\n(.+)/g)]
-      .map(m => ({ t: +m[1] * 3600 + +m[2] * 60 + +m[3], text: m[4] }));
+    const cues = [...text.matchAll(/(\d+):(\d+):([\d.]+) --> \S+\n(.+(?:\n.+)?)/g)]  // a caption has 1 or 2 lines
+      .map(m => ({ t: +m[1] * 3600 + +m[2] * 60 + +m[3], text: m[4].replace(/\n/g, " ") }));
     list.replaceChildren(...cues.map(c => el("button", { textContent: c.text,
       onclick: () => { video.currentTime = c.t; video.play(); } })));
     video.ontimeupdate = () => {

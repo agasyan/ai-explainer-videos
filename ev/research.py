@@ -7,6 +7,7 @@ One markdown table, one row per claim:
     | c1 | Sperry flew hands-off in 1914 | [NASM](https://...) | [FAA](https://...) | two sources |
 
 A beat cites claims with `sources: [c1]` in script.yaml. A claim with one link is "one source"; with none, "no source".
+A link that the researcher could not open does not count: its cell says "not opened".
 """
 import re
 from pathlib import Path
@@ -30,7 +31,7 @@ def rows(path):
             continue
         cells = [c.strip() for c in match[2].split("|")]
         claim = cells[0] if cells else ""
-        links = [link for cell in cells[1:3] for link in LINK.findall(cell)]
+        links = [link for cell in cells[1:3] if "not opened" not in cell.lower() for link in LINK.findall(cell)]
         out.append({"id": match[1], "claim": claim, "links": links,
                     "status": "two sources" if len(links) >= 2 else "one source" if links else "no source"})
     return out

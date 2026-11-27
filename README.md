@@ -39,7 +39,7 @@ An HTML page is a source, not the video: Claude retells its point in its own sto
 
 - **Any topic, any look:** diagrams, UI, maps, charts, code, hand-drawn whiteboard, math. 8 moodboards set the look and 6 video formats set the structure; Claude recommends one of each ([THIRD_PARTY.md](THIRD_PARTY.md) credits their sources).
 - **Formats and parts:** `story` (1080 × 1920), `landscape` (1920 × 1080), or `both`, at 30 fps. Long topics split into parts that each make sense alone.
-- **Voice and captions:** Kokoro, open source and local, in US and UK English. Captions are designed into the picture: words pop in as they are said, and `*key words*` take the key color. The MP4 also carries a subtitle track, plus `.srt` and `.vtt` files.
+- **Voice and captions:** Kokoro, open source and local, in US and UK English. Captions are designed into the picture: the whole sentence shows like a film subtitle, the said word lights up, and `*key words*` take the key color. Each scene is a chapter mark in the MP4. The MP4 also carries a subtitle track, plus `.srt` and `.vtt` files.
 - **3D where it helps:** three.js for spatial ideas only, 2 scenes per part at most. Untick one box for 2D only ([docs/scenes.md](docs/scenes.md#3d)).
 - **From an HTML page:** a report, a docs page, or an artifact becomes a short story of its point, with zoom-ins on the evidence ([docs/from-html.md](docs/from-html.md)).
 - **Open source and offline:** every tool has an open-source license, and renders run with no network. Two engines: Playwright (default), or [HyperFrames](https://github.com/heygen-com/hyperframes) for screen recordings inside a scene ([docs/how-it-works.md](docs/how-it-works.md#engines)).

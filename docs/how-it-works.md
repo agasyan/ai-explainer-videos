@@ -90,9 +90,10 @@ Switching the engine cancels the preview approval (it changes the picture), but 
 Captions are part of the design, not a layer on top:
 
 - **In the picture.** `ev.js` draws them in the look's font and colors, in a band below `.safe`, so they never cover content.
-- **Timed to the voice.** With `captions: pop` (default), each word appears as the voice says it and pops, then settles. With `captions: line`, the whole line shows and words light up. `captions: off` removes them from the picture.
+- **Timed to the voice.** With `captions: line` (default), the whole sentence shows in 1 or 2 lines, like a film subtitle, and the word the voice says takes the highlight color. With `captions: pop`, each word appears as the voice says it and pops, then settles. `captions: off` removes them from the picture.
 - **Key words.** Words in `*asterisks*` in `say` take the key color. The voice ignores the asterisks.
-- **Switchable track.** Each MP4 also carries a subtitle track (off by default) that players can switch on, and `out/` gets `.srt` and `.vtt` files for uploads and web players.
+- **Switchable track.** Each MP4 also carries a subtitle track (off by default) that players can switch on, and `out/` gets `.srt` and `.vtt` files for uploads and web players. A caption there is a sentence in 1 or 2 lines.
+- **Chapters.** A video with 2 scenes or more gets one chapter mark per scene in the MP4, named by the scene's `title:`, and `out/<name>.chapters.txt` lists them for a video description.
 - **Clickable transcript.** The dashboard player lists the caption lines; click one to jump there.
 
 ## Open source
